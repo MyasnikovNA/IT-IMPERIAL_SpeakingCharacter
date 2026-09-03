@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+
+<html lang="ru">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>D-ID Avatar</title>
+
+    <link
+        rel="stylesheet"
+        href="/style.css"
+    >
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <h1>Говорящий аватар</h1>
+
+
+    <video
+        id="avatar"
+        autoplay
+        playsinline
+    ></video>
+
+
+    <textarea
+        id="text"
+        placeholder="Введите текст..."
+    >Привет! Это мой говорящий аватар.</textarea>
+
+
+    <div class="buttons">
+
+        <button
+            id="connect"
+        >
+            Подключить
+        </button>
+
+
+        <button
+            id="speak"
+            disabled
+        >
+            Говорить
+        </button>
+
+
+        <button
+            id="disconnect"
+            disabled
+        >
+            Отключить
+        </button>
+
+    </div>
+
+
+    <div id="status">
+        Загрузка...
+    </div>
+
+</div>
+
+
+<script type="module">
+
+import * as did
+    from "https://esm.sh/@d-id/client-sdk";
+
+
+window.DID = did;
+
+</script>
+
+
+<script
+    type="module"
+    src="/app.js"
+></script>
+
+
+</body>
+
+</html>
