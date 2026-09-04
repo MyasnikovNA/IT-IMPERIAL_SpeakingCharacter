@@ -4,6 +4,7 @@ __pycache__/
 
 .venv/
 venv/
+.venv-python39-backup/
 
 backend/.gradle/
 backend/.kotlin/
