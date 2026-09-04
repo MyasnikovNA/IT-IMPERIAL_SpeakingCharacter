@@ -24,4 +24,34 @@ class ContextWindowTest {
         assertEquals(1, context.count { it.content == "Current message" })
         assertEquals(messages, context)
     }
+
+    /** Сохраняет хронологический порядок сообщений в окне контекста. */
+    @Test
+    fun `select preserves chronological order`() {
+        val now = Instant.parse("2026-01-01T00:00:00Z")
+        val messages = listOf(
+            ChatMessage(ChatRole.USER, "1", now),
+            ChatMessage(ChatRole.ASSISTANT, "2", now.plusSeconds(1)),
+            ChatMessage(ChatRole.USER, "3", now.plusSeconds(2)),
+        )
+
+        assertEquals(messages, ContextWindow.select(messages, 3))
+    }
+
+    /** Ограничивает окно последними сообщениями, сохраняя их хронологический порядок. */
+    @Test
+    fun `select keeps last maximum number of messages`() {
+        val now = Instant.parse("2026-01-01T00:00:00Z")
+        val messages = listOf(
+            ChatMessage(ChatRole.USER, "1", now),
+            ChatMessage(ChatRole.ASSISTANT, "2", now.plusSeconds(1)),
+            ChatMessage(ChatRole.USER, "3", now.plusSeconds(2)),
+            ChatMessage(ChatRole.ASSISTANT, "4", now.plusSeconds(3)),
+            ChatMessage(ChatRole.USER, "5", now.plusSeconds(4)),
+        )
+
+        val context = ContextWindow.select(messages, 3)
+
+        assertEquals(listOf("3", "4", "5"), context.map { it.content })
+    }
 }
