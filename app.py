@@ -1,4 +1,4 @@
-"""Отдаёт существующий D-ID frontend и его runtime-конфигурацию."""
+"""Отдаёт frontend и его безопасную публичную runtime-конфигурацию."""
 
 import os
 from pathlib import Path
@@ -20,23 +20,17 @@ app = FastAPI()
 def config():
     """Возвращает публичную конфигурацию frontend без серверных секретов."""
 
-    agent_id = (
-        BASE_DIR / "agent_id.txt"
-    ).read_text(
-        encoding="utf-8"
-    ).strip()
-
-    client_key = (
-        BASE_DIR / "client_key.txt"
-    ).read_text(
-        encoding="utf-8"
-    ).strip()
-
-    return {
-        "agent_id": agent_id,
-        "client_key": client_key,
+    avatar_provider = os.getenv("AVATAR_PROVIDER", "did").lower()
+    response = {
+        "avatar_provider": avatar_provider,
         "chat_api_url": os.getenv("CHAT_API_URL", "http://localhost:8080"),
     }
+
+    if avatar_provider == "did":
+        response["agent_id"] = (BASE_DIR / "agent_id.txt").read_text(encoding="utf-8").strip()
+        response["client_key"] = (BASE_DIR / "client_key.txt").read_text(encoding="utf-8").strip()
+
+    return response
 
 
 app.mount(

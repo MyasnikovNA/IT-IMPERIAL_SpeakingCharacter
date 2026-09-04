@@ -34,6 +34,12 @@
         playsinline
     ></video>
 
+    <audio
+        id="avatar-audio"
+        autoplay
+        hidden
+    ></audio>
+
 
     <textarea
         id="text"
@@ -80,8 +86,12 @@
 import * as did
     from "https://esm.sh/@d-id/client-sdk";
 
+import { SimliClient, LogLevel }
+    from "https://esm.sh/simli-client@3.0.2";
+
 
 window.DID = did;
+window.Simli = { SimliClient, LogLevel };
 
 </script>
 
