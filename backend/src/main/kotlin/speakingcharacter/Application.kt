@@ -4,6 +4,7 @@ package speakingcharacter
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientContentNegotiation
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -33,6 +34,11 @@ fun Application.module() {
     val prompt = loadSystemPrompt()
     val geminiClient = GeminiClient(HttpClient(CIO) {
         install(ClientContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        install(HttpTimeout) {
+            connectTimeoutMillis = 3_000
+            requestTimeoutMillis = 15_000
+            socketTimeoutMillis = 15_000
+        }
     }, config)
     val conversationService = ConversationService(repository, geminiClient, prompt, config)
 

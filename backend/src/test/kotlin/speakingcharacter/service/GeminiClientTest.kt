@@ -15,6 +15,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import speakingcharacter.config.AppConfig
 import speakingcharacter.db.ChatMessage
 import speakingcharacter.db.ChatRole
@@ -27,9 +28,11 @@ class GeminiClientTest {
     fun `generate serializes conversation and returns candidate text`() = runTest {
         var requestUrl = ""
         var requestBody = ""
+        var apiKeyHeader = ""
         val client = mockClient("""{"candidates":[{"content":{"parts":[{"text":"  Готовый ответ  "}]}}]}""") { request ->
             requestUrl = request.url.toString()
             requestBody = (request.body as TextContent).text
+            apiKeyHeader = request.headers["x-goog-api-key"].orEmpty()
         }
         val gemini = GeminiClient(client, testConfig())
 
@@ -40,12 +43,28 @@ class GeminiClientTest {
 
         assertEquals("Готовый ответ", result)
         assertContains(requestUrl, "models/test-model:generateContent")
-        assertContains(requestUrl, "key=test-api-key")
+        assertFalse(requestUrl.contains("key="))
+        assertEquals("test-api-key", apiKeyHeader)
         assertContains(requestBody, "Ты корпоративный персонаж.")
         assertContains(requestBody, "\"role\":\"user\"")
         assertContains(requestBody, "\"role\":\"model\"")
         assertContains(requestBody, "Здравствуйте")
         assertContains(requestBody, "Добрый день")
+        assertContains(requestBody, "\"maxOutputTokens\":200")
+        client.close()
+    }
+
+    /** Объединяет текстовые части первого кандидата и исключает внутренние рассуждения. */
+    @Test
+    fun `generate joins visible candidate parts`() = runTest {
+        val client = mockClient(
+            """{"candidates":[{"content":{"parts":[{"text":"Первая часть "},{"thought":true,"text":"internal "},{"text":"и вторая часть"}]}}]}""",
+        )
+        val gemini = GeminiClient(client, testConfig())
+
+        val result = gemini.generate("Инструкция", listOf(message(ChatRole.USER, "Текст")))
+
+        assertEquals("Первая часть и вторая часть", result)
         client.close()
     }
 

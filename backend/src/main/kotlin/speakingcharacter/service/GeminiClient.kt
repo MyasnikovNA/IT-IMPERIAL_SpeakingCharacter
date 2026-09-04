@@ -2,6 +2,7 @@
 package speakingcharacter.service
 
 import io.ktor.client.HttpClient
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.request.url
@@ -16,6 +17,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import speakingcharacter.config.AppConfig
 import speakingcharacter.db.ChatMessage
 import speakingcharacter.db.ChatRole
@@ -37,7 +40,7 @@ class GeminiClient(private val httpClient: HttpClient, private val config: AppCo
         val response = try {
             httpClient.post {
                 url("https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent")
-                url.parameters.append("key", config.geminiApiKey)
+                header("x-goog-api-key", config.geminiApiKey)
                 contentType(ContentType.Application.Json)
                 setBody(requestBody(systemPrompt, messages))
             }
@@ -65,6 +68,7 @@ class GeminiClient(private val httpClient: HttpClient, private val config: AppCo
                 )
             }
         })
+        put("generationConfig", buildJsonObject { put("maxOutputTokens", JsonPrimitive(200)) })
     }
 
     /** Оборачивает текст инструкции в представление parts, требуемое Gemini. */
@@ -72,7 +76,7 @@ class GeminiClient(private val httpClient: HttpClient, private val config: AppCo
         put("parts", buildJsonArray { add(buildJsonObject { put("text", JsonPrimitive(text)) }) })
     }
 
-    /** Извлекает текст первого кандидата или сообщает безопасную для ключа ошибку. */
+    /** Извлекает видимый текст всех частей первого кандидата или сообщает безопасную ошибку. */
     private fun extractText(rawResponse: String): String = try {
         val root = json.parseToJsonElement(rawResponse).jsonObject
         val candidates = root["candidates"]?.jsonArray ?: throw GeminiException("Gemini returned no candidates")
@@ -81,8 +85,11 @@ class GeminiClient(private val httpClient: HttpClient, private val config: AppCo
             ?.get("content")?.jsonObject
             ?.get("parts")?.jsonArray
             ?: throw GeminiException("Gemini returned no text content")
-        parts.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.content
-            ?.trim()?.takeIf { it.isNotEmpty() }
+        parts.mapNotNull { part ->
+            val partObject = part as? JsonObject ?: return@mapNotNull null
+            if ((partObject["thought"] as? JsonPrimitive)?.booleanOrNull == true) return@mapNotNull null
+            (partObject["text"] as? JsonPrimitive)?.contentOrNull
+        }.joinToString("").trim().takeIf { it.isNotEmpty() }
             ?: throw GeminiException("Gemini returned an empty response")
     } catch (exception: GeminiException) {
         throw exception
