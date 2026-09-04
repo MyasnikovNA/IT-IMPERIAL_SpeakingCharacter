@@ -28,6 +28,8 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql:11.3.1")
     implementation("ch.qos.logback:logback-classic:1.5.16")
     testImplementation(kotlin("test"))
+    testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
 
 kotlin {
