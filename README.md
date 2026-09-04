@@ -36,6 +36,19 @@ Frontend передаёт только этот ответ в `D-ID agentManager
 FastAPI продолжает только отдавать frontend и его конфигурацию.
 Kotlin отвечает за LLM и память диалога, а D-ID — за голос и аватар.
 
+## LLM architecture
+
+`ConversationService` координирует обычный ход тренировки.
+`ConversationContextBuilder` формирует context, а `PromptProvider` предоставляет prompts.
+`GeminiClient` выполняет только inference, после чего PostgreSQL сохраняет assistant message.
+После finish `EvaluationService` передаёт полный transcript Gemini и сохраняет structured report.
+
+## Conversation memory
+
+В PostgreSQL сохраняется вся история сессии.
+В обычный LLM turn передаются только последние `MAX_CONTEXT_MESSAGES` реплик.
+Итоговая evaluation использует полный transcript; для длинных диалогов summarization пока не реализована.
+
 ## API
 
 - `GET /health` → `{ "status": "ok" }`
@@ -65,6 +78,39 @@ curl -X POST http://localhost:8080/api/chat \
 curl http://localhost:8080/api/chat/<SESSION_ID>/history
 ```
 
+## Finish training
+
+```bash
+curl -X POST http://localhost:8080/api/chat/<SESSION_ID>/finish
+```
+
+Повторный finish возвращает уже сохранённый report и не запускает Gemini повторно.
+
+## Get report
+
+```bash
+curl http://localhost:8080/api/chat/<SESSION_ID>/report
+```
+
+## Report structure
+
+```json
+{
+  "sessionId": "...",
+  "overallScore": 4,
+  "summary": "Тренировка в целом пройдена успешно.",
+  "recommendations": ["Чётче проговаривать следующий шаг"],
+  "criteria": [
+    {
+      "name": "Полнота ответа",
+      "score": 4,
+      "comment": "Основные элементы ответа присутствуют.",
+      "evidence": "Пользователь обозначил следующий шаг."
+    }
+  ]
+}
+```
+
 ## Not implemented yet
 
 Сознательно отложены после MVP:
@@ -72,6 +118,8 @@ curl http://localhost:8080/api/chat/<SESSION_ID>/history
 - streaming LLM response и SSE/WebSocket;
 - interruption / barge-in;
 - STT / VAD;
+- generationId;
 - advanced scenario engine;
 - context summarization;
-- evaluation/report.
+- RAG;
+- production authentication.
