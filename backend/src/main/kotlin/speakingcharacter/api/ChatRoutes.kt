@@ -19,6 +19,9 @@ import speakingcharacter.service.GeminiException
 import speakingcharacter.service.SessionFinishedException
 import speakingcharacter.service.SessionNotFoundException
 import java.util.UUID
+import org.slf4j.LoggerFactory
+
+private val chatRoutesLogger = LoggerFactory.getLogger("ChatRoutes")
 
 /** Регистрирует API чата без изменения существующего POST /api/chat contract. */
 fun Application.registerChatRoutes(conversationService: ConversationService, evaluationService: EvaluationService) {
@@ -75,17 +78,27 @@ private suspend fun ApplicationCall.executeReply(
     service: ConversationService,
     sessionId: UUID?,
     message: String,
-): ConversationResult? = try {
-    service.reply(sessionId, message)
-} catch (_: SessionNotFoundException) {
-    respond(HttpStatusCode.NotFound, ErrorResponse("chat session not found"))
-    null
-} catch (_: SessionFinishedException) {
-    respond(HttpStatusCode.Conflict, ErrorResponse("training session is already finished"))
-    null
-} catch (exception: GeminiException) {
-    respond(HttpStatusCode.BadGateway, ErrorResponse(exception.message ?: "Gemini request failed"))
-    null
+): ConversationResult? {
+    /** Измеряет полный server-side latency POST /api/chat без записи текста сообщения. */
+    val startedAt = System.nanoTime()
+    return try {
+        service.reply(sessionId, message)
+    } catch (_: SessionNotFoundException) {
+        respond(HttpStatusCode.NotFound, ErrorResponse("chat session not found"))
+        null
+    } catch (_: SessionFinishedException) {
+        respond(HttpStatusCode.Conflict, ErrorResponse("training session is already finished"))
+        null
+    } catch (exception: GeminiException) {
+        respond(HttpStatusCode.BadGateway, ErrorResponse(exception.message ?: "Gemini request failed"))
+        null
+    } finally {
+        chatRoutesLogger.info(
+            "Chat HTTP request completed durationMs={} sessionIdPresent={}",
+            (System.nanoTime() - startedAt) / 1_000_000,
+            sessionId != null,
+        )
+    }
 }
 
 /** Выполняет finish или report flow и не раскрывает stack trace API-клиенту. */

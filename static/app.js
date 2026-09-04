@@ -20,6 +20,35 @@ const status =
 let agentManager = null;
 let chatSessionId = null;
 let appConfig = null;
+const pageStartedAt = performance.now();
+
+/** Логирует измерение пользовательского пути без содержимого сообщений и секретов. */
+function logTiming(event, startedAt, details = {}) {
+
+    console.info("[timing]", {
+        event,
+        durationMs: Math.round(performance.now() - startedAt),
+        sincePageStartMs: Math.round(performance.now() - pageStartedAt),
+        ...details
+    });
+
+}
+
+/** Логирует переходы HTML video, чтобы отделить WebRTC от загрузки и воспроизведения. */
+["loadedmetadata", "canplay", "playing", "waiting", "stalled", "ended"].forEach((event) => {
+
+    video.addEventListener(event, () => {
+
+        console.info("[timing]", {
+            event: `video_${event}`,
+            sincePageStartMs: Math.round(performance.now() - pageStartedAt),
+            readyState: video.readyState,
+            networkState: video.networkState
+        });
+
+    });
+
+});
 
 /** Обновляет отображаемый статус подключения или запроса. */
 function setStatus(message) {
@@ -37,8 +66,11 @@ async function loadConfig() {
 
     }
 
+    const startedAt = performance.now();
     const response =
         await fetch("/api/config");
+
+    logTiming("config_response", startedAt, { status: response.status });
 
     if (!response.ok) {
 
@@ -58,6 +90,8 @@ async function loadConfig() {
 async function connect() {
 
     try {
+
+        const connectStartedAt = performance.now();
 
         setStatus(
             "Подключение к D-ID..."
@@ -147,6 +181,7 @@ async function connect() {
         };
 
 
+        const managerStartedAt = performance.now();
         agentManager =
             await window.DID.createAgentManager(
 
@@ -180,9 +215,13 @@ async function connect() {
                 }
 
             );
+        logTiming("did_manager_created", managerStartedAt);
 
 
+        const didConnectStartedAt = performance.now();
         await agentManager.connect();
+        logTiming("did_connect_completed", didConnectStartedAt);
+        logTiming("avatar_connect_total", connectStartedAt);
 
 
         setStatus(
@@ -245,6 +284,8 @@ async function speak() {
 
     try {
 
+        const speakStartedAt = performance.now();
+
         speakButton.disabled =
             true;
 
@@ -252,6 +293,7 @@ async function speak() {
         setStatus("Запрашиваю ответ...");
 
         const config = await loadConfig();
+        const backendStartedAt = performance.now();
         const response = await fetch(`${config.chat_api_url}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -262,6 +304,7 @@ async function speak() {
         });
 
         const payload = await response.json().catch(() => ({}));
+        logTiming("chat_backend_response", backendStartedAt, { status: response.status });
 
         if (!response.ok) {
             throw new Error(payload.error || "Ошибка chat backend");
@@ -271,6 +314,7 @@ async function speak() {
         setStatus("Аватар говорит...");
 
 
+        const didSpeakStartedAt = performance.now();
         await agentManager.speak({
 
             type: "text",
@@ -278,6 +322,8 @@ async function speak() {
             input: payload.assistantMessage
 
         });
+        logTiming("did_speak_completed", didSpeakStartedAt, { sessionId: chatSessionId });
+        logTiming("speak_total", speakStartedAt, { sessionId: chatSessionId });
 
 
         setStatus(
