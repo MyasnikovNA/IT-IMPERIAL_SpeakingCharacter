@@ -5,6 +5,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation as ClientContentNegotiation
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -13,6 +14,7 @@ import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.websocket.WebSockets as ServerWebSockets
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
 import io.ktor.http.HttpMethod
@@ -21,6 +23,7 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import speakingcharacter.api.ErrorResponse
 import speakingcharacter.api.registerChatRoutes
+import speakingcharacter.api.registerStreamingRoutes
 import speakingcharacter.config.AppConfig
 import speakingcharacter.db.DatabaseFactory
 import speakingcharacter.db.JdbcChatRepository
@@ -29,7 +32,9 @@ import speakingcharacter.service.ConversationService
 import speakingcharacter.service.ConversationContextBuilder
 import speakingcharacter.service.EvaluationService
 import speakingcharacter.service.GeminiClient
+import speakingcharacter.service.ElevenLabsStreamingTtsClient
 import speakingcharacter.service.PromptProvider
+import speakingcharacter.service.SimliSessionTokenClient
 
 /** Настраивает и запускает все зависимости Kotlin backend чата. */
 fun Application.module() {
@@ -42,6 +47,7 @@ fun Application.module() {
     val contextBuilder = ConversationContextBuilder(config.maxContextMessages)
     val geminiClient = GeminiClient(HttpClient(CIO) {
         install(ClientContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        install(ClientWebSockets)
         install(HttpTimeout) {
             connectTimeoutMillis = 3_000
             requestTimeoutMillis = 15_000
@@ -50,11 +56,14 @@ fun Application.module() {
     }, config)
     val conversationService = ConversationService(chatRepository, contextBuilder, promptProvider, geminiClient)
     val evaluationService = EvaluationService(chatRepository, evaluationRepository, contextBuilder, promptProvider, geminiClient)
+    val ttsClient = ElevenLabsStreamingTtsClient(HttpClient(CIO) { install(ClientWebSockets) }, config)
+    val simliSessionTokenClient = SimliSessionTokenClient(HttpClient(CIO) { install(ClientContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } }, config)
 
     install(ContentNegotiation) {
         json(Json { ignoreUnknownKeys = true })
     }
     install(CallLogging)
+    install(ServerWebSockets)
     install(CORS) {
         allowHost(config.frontendHost, schemes = listOf("http"))
         allowMethod(HttpMethod.Get)
@@ -71,4 +80,5 @@ fun Application.module() {
         }
     }
     registerChatRoutes(conversationService, evaluationService)
+    registerStreamingRoutes(config, conversationService, ttsClient, simliSessionTokenClient)
 }
