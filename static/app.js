@@ -72,6 +72,10 @@ async function connect() {
 
         const callbacks = {
 
+            /**
+             * Прикрепляет готовый WebRTC-поток к элементу видео аватара.
+             * @param {MediaStream} stream Поток, полученный от D-ID.
+             */
             onSrcObjectReady(stream) {
 
                 console.log(
@@ -87,6 +91,10 @@ async function connect() {
             },
 
 
+            /**
+             * Отображает изменение состояния подключения D-ID.
+             * @param {string} state Новое состояние подключения.
+             */
             onConnectionStateChange(state) {
 
                 console.log(
@@ -101,6 +109,11 @@ async function connect() {
             },
 
 
+            /**
+             * Логирует служебное сообщение, полученное от D-ID.
+             * @param {unknown} messages Данные сообщения D-ID.
+             * @param {string} type Тип сообщения.
+             */
             onNewMessage(messages, type) {
 
                 console.log(
@@ -112,6 +125,11 @@ async function connect() {
             },
 
 
+            /**
+             * Логирует ошибку D-ID и показывает пользователю безопасный статус.
+             * @param {unknown} error Основная ошибка D-ID.
+             * @param {unknown} errorData Дополнительные данные ошибки.
+             */
             onError(error, errorData) {
 
                 console.error(
