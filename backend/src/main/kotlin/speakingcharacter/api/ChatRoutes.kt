@@ -1,4 +1,4 @@
-/** Определяет HTTP endpoints чата и диагностической истории. */
+/** Определяет HTTP endpoints чата, истории, завершения тренировки и report. */
 package speakingcharacter.api
 
 import io.ktor.http.HttpStatusCode
@@ -13,13 +13,15 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import speakingcharacter.service.ConversationResult
 import speakingcharacter.service.ConversationService
+import speakingcharacter.service.EvaluationException
+import speakingcharacter.service.EvaluationService
 import speakingcharacter.service.GeminiException
 import speakingcharacter.service.SessionFinishedException
 import speakingcharacter.service.SessionNotFoundException
 import java.util.UUID
 
-/** Регистрирует существующий API чата без изменения POST /api/chat contract. */
-fun Application.registerChatRoutes(conversationService: ConversationService) {
+/** Регистрирует API чата без изменения существующего POST /api/chat contract. */
+fun Application.registerChatRoutes(conversationService: ConversationService, evaluationService: EvaluationService) {
     routing {
         get("/health") { call.respond(HealthResponse()) }
         route("/api/chat") {
@@ -34,6 +36,16 @@ fun Application.registerChatRoutes(conversationService: ConversationService) {
                 if (request.sessionId != null && sessionId == null) return@post
                 val result = call.executeReply(conversationService, sessionId, message) ?: return@post
                 call.respond(ChatResponse(result.sessionId.toString(), result.assistantMessage))
+            }
+            post("/{sessionId}/finish") {
+                val sessionId = call.parseSessionId(call.parameters["sessionId"] ?: "") ?: return@post
+                val report = call.executeEvaluation { evaluationService.finishSession(sessionId) } ?: return@post
+                call.respond(report.toDto())
+            }
+            get("/{sessionId}/report") {
+                val sessionId = call.parseSessionId(call.parameters["sessionId"] ?: "") ?: return@get
+                val report = call.executeEvaluation { evaluationService.getReport(sessionId) } ?: return@get
+                call.respond(report.toDto())
             }
             get("/{sessionId}/history") {
                 val sessionId = call.parseSessionId(call.parameters["sessionId"] ?: "") ?: return@get
@@ -73,5 +85,22 @@ private suspend fun ApplicationCall.executeReply(
     null
 } catch (exception: GeminiException) {
     respond(HttpStatusCode.BadGateway, ErrorResponse(exception.message ?: "Gemini request failed"))
+    null
+}
+
+/** Выполняет finish или report flow и не раскрывает stack trace API-клиенту. */
+private suspend fun ApplicationCall.executeEvaluation(action: suspend () -> speakingcharacter.model.TrainingReport): speakingcharacter.model.TrainingReport? = try {
+    action()
+} catch (_: SessionNotFoundException) {
+    respond(HttpStatusCode.NotFound, ErrorResponse("chat session not found"))
+    null
+} catch (_: NoSuchElementException) {
+    respond(HttpStatusCode.NotFound, ErrorResponse("training report not found"))
+    null
+} catch (exception: EvaluationException) {
+    respond(HttpStatusCode.BadGateway, ErrorResponse(exception.message ?: "evaluation failed"))
+    null
+} catch (_: IllegalStateException) {
+    respond(HttpStatusCode.BadRequest, ErrorResponse("training session has no messages"))
     null
 }

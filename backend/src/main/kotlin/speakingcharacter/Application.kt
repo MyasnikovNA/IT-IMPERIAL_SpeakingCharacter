@@ -24,8 +24,10 @@ import speakingcharacter.api.registerChatRoutes
 import speakingcharacter.config.AppConfig
 import speakingcharacter.db.DatabaseFactory
 import speakingcharacter.db.JdbcChatRepository
+import speakingcharacter.db.JdbcEvaluationRepository
 import speakingcharacter.service.ConversationService
 import speakingcharacter.service.ConversationContextBuilder
+import speakingcharacter.service.EvaluationService
 import speakingcharacter.service.GeminiClient
 import speakingcharacter.service.PromptProvider
 
@@ -35,6 +37,7 @@ fun Application.module() {
     val config = AppConfig.fromEnvironment()
     val dataSource = DatabaseFactory(config).connectAndMigrate()
     val chatRepository = JdbcChatRepository(dataSource)
+    val evaluationRepository = JdbcEvaluationRepository(dataSource)
     val promptProvider = PromptProvider()
     val contextBuilder = ConversationContextBuilder(config.maxContextMessages)
     val geminiClient = GeminiClient(HttpClient(CIO) {
@@ -46,6 +49,7 @@ fun Application.module() {
         }
     }, config)
     val conversationService = ConversationService(chatRepository, contextBuilder, promptProvider, geminiClient)
+    val evaluationService = EvaluationService(chatRepository, evaluationRepository, contextBuilder, promptProvider, geminiClient)
 
     install(ContentNegotiation) {
         json(Json { ignoreUnknownKeys = true })
@@ -66,5 +70,5 @@ fun Application.module() {
             call.respond(HttpStatusCode.InternalServerError, ErrorResponse("internal server error"))
         }
     }
-    registerChatRoutes(conversationService)
+    registerChatRoutes(conversationService, evaluationService)
 }
