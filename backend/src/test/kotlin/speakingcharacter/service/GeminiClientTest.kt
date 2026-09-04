@@ -48,7 +48,7 @@ class GeminiClientTest {
         assertContains(requestBody, "\"role\":\"model\"")
         assertContains(requestBody, "Здравствуйте")
         assertContains(requestBody, "Добрый день")
-        assertContains(requestBody, "\"maxOutputTokens\":200")
+        assertContains(requestBody, "\"maxOutputTokens\":2048")
         client.close()
     }
 

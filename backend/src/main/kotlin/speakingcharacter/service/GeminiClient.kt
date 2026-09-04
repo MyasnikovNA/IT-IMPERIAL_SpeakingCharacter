@@ -36,7 +36,7 @@ class GeminiClient(private val httpClient: HttpClient, private val config: AppCo
      * @param messages подготовленные реплики Gemini с текущей user-репликой ровно один раз
      */
     override suspend fun generate(systemPrompt: String, messages: List<LlmMessage>): String =
-        requestInference(systemPrompt, messages, 200, false)
+        requestInference(systemPrompt, messages, 2048, false)
 
     /** Генерирует JSON-отчёт с увеличенным лимитом, не предназначенный для озвучивания. */
     override suspend fun generateStructuredJson(systemPrompt: String, messages: List<LlmMessage>): String =
@@ -49,22 +49,34 @@ class GeminiClient(private val httpClient: HttpClient, private val config: AppCo
         maxOutputTokens: Int,
         structuredJson: Boolean,
     ): String {
-        val response = try {
-            httpClient.post {
-                url("https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent")
-                header("x-goog-api-key", config.geminiApiKey)
-                contentType(ContentType.Application.Json)
-                setBody(requestBody(systemPrompt, messages, maxOutputTokens, structuredJson))
+        val models = (listOf(config.geminiModel) + config.geminiFallbackModels).distinct()
+        var lastFailure: GeminiException? = null
+
+        for ((index, model) in models.withIndex()) {
+            val response = try {
+                httpClient.post {
+                    url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
+                    header("x-goog-api-key", config.geminiApiKey)
+                    contentType(ContentType.Application.Json)
+                    setBody(requestBody(systemPrompt, messages, maxOutputTokens, structuredJson))
+                }
+            } catch (_: Exception) {
+                lastFailure = GeminiException("Gemini request failed due to a network or client error")
+                if (index == models.lastIndex) throw lastFailure!!
+                continue
             }
-        } catch (_: Exception) {
-            throw GeminiException("Gemini request failed due to a network or client error")
+
+            if (response.status.value in 200..299) {
+                return extractText(response.bodyAsText())
+            }
+
+            lastFailure = GeminiException("Gemini returned HTTP ${response.status.value}. Check GEMINI_MODEL and API configuration.")
+            val retryable = response.status.value == 404 || response.status.value == 408 ||
+                response.status.value == 429 || response.status.value >= 500
+            if (!retryable || index == models.lastIndex) throw lastFailure!!
         }
 
-        if (response.status.value !in 200..299) {
-            throw GeminiException("Gemini returned HTTP ${response.status.value}. Check GEMINI_MODEL and API configuration.")
-        }
-
-        return extractText(response.bodyAsText())
+        throw lastFailure ?: GeminiException("Gemini request failed")
     }
 
     /** Сериализует GenerateContent с форматом обычного текста либо structured JSON. */

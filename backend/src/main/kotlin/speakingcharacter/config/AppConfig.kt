@@ -5,6 +5,7 @@ package speakingcharacter.config
 data class AppConfig(
     val geminiApiKey: String,
     val geminiModel: String,
+    val geminiFallbackModels: List<String> = emptyList(),
     val databaseUrl: String,
     val databaseUser: String,
     val databasePassword: String,
@@ -20,7 +21,11 @@ data class AppConfig(
 
             return AppConfig(
                 geminiApiKey = requiredEnvironment("GEMINI_API_KEY"),
-                geminiModel = environment("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+                geminiModel = environment("GEMINI_MODEL", "gemini-3-flash-preview"),
+                geminiFallbackModels = environment("GEMINI_MODEL_FALLBACKS", "gemini-3.6-flash,gemini-3.5-flash-lite")
+                    .split(',')
+                    .map(String::trim)
+                    .filter(String::isNotEmpty),
                 databaseUrl = environment("DATABASE_URL", "jdbc:postgresql://localhost:5432/speaking_character"),
                 databaseUser = environment("DATABASE_USER", "speaking_character"),
                 databasePassword = environment("DATABASE_PASSWORD", "speaking_character"),
