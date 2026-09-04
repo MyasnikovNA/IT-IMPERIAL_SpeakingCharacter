@@ -31,7 +31,11 @@ import speakingcharacter.model.LlmMessage
 class GeminiException(message: String) : RuntimeException(message)
 
 /** Минимальный HTTP-клиент Gemini без лишнего AI-фреймворка для MVP. */
-class GeminiClient(private val httpClient: HttpClient, private val config: AppConfig) : LlmClient {
+class GeminiClient(
+    private val httpClient: HttpClient,
+    private val config: AppConfig,
+    private val streamingHttpClient: HttpClient = httpClient,
+) : LlmClient {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
@@ -146,7 +150,7 @@ class GeminiClient(private val httpClient: HttpClient, private val config: AppCo
     /** Выполняет один SSE-запрос к заданной модели и читает data-события до конца ответа. */
     private fun requestStream(model: String, systemPrompt: String, messages: List<LlmMessage>): Flow<String> = flow {
         val response = try {
-            httpClient.post {
+            streamingHttpClient.post {
                 url("https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse")
                 header("x-goog-api-key", config.geminiApiKey)
                 contentType(ContentType.Application.Json)

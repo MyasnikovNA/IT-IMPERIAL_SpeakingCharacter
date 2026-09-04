@@ -8,6 +8,7 @@ import io.ktor.websocket.readText
 import java.util.Base64
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -95,7 +96,7 @@ class ElevenLabsStreamingTtsClient(
                 firstAudioLogged,
             )
         }
-    }
+    }.buffer(capacity = 1)
 
     /** Формирует стартовое сообщение с моделью и расписанием ранней генерации аудио. */
     private fun initialMessage(apiKey: String): JsonObject = buildJsonObject {

@@ -15,6 +15,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -54,54 +55,68 @@ fun Application.registerStreamingRoutes(
             }
         }
         webSocket("/api/chat/stream") {
-            if (config.avatarProvider != AvatarProvider.SIMLI) {
-                sendEvent(ChatStreamEvent("error", error = "Simli avatar provider is disabled"))
-                outgoing.close()
-                return@webSocket
+            val outbound = Channel<Frame>(capacity = 4)
+            val writer = launch {
+                try {
+                    for (frame in outbound) send(frame)
+                } finally {
+                    outgoing.close()
+                }
             }
-            val start = receiveStart() ?: return@webSocket
-            val work = launchStreamingTurn(conversationService, ttsClient, start)
+            var work: Job? = null
             try {
+                if (config.avatarProvider != AvatarProvider.SIMLI) {
+                    outbound.sendEvent(ChatStreamEvent("error", error = "Simli avatar provider is disabled"))
+                    return@webSocket
+                }
+                val start = receiveStart(outbound) ?: return@webSocket
+                work = launchStreamingTurn(conversationService, ttsClient, start, outbound)
                 for (frame in incoming) {
                     if (frame !is Frame.Text) continue
-                    val command = streamingJson.decodeFromString<ChatStreamRequest>(frame.readText())
+                    val command = try {
+                        streamingJson.decodeFromString<ChatStreamRequest>(frame.readText())
+                    } catch (_: Exception) {
+                        outbound.sendEvent(ChatStreamEvent("error", error = "invalid stream request"))
+                        null
+                    }
+                    if (command == null) {
+                        break
+                    }
                     if (command.type == "cancel") {
                         work.cancel(CancellationException("Browser cancelled the streaming turn"))
-                        sendEvent(ChatStreamEvent("done"))
-                outgoing.close()
                         break
                     }
                 }
             } finally {
-                if (!work.isCompleted) work.cancel()
-                work.join()
+                work?.let {
+                    if (!it.isCompleted) it.cancel()
+                    it.join()
+                }
+                outbound.close()
+                writer.join()
             }
         }
     }
 }
 
 /** Читает и валидирует первую обязательную команду start. */
-private suspend fun WebSocketServerSession.receiveStart(): ChatStreamRequest? {
+private suspend fun WebSocketServerSession.receiveStart(outbound: SendChannel<Frame>): ChatStreamRequest? {
     val frame = incoming.receiveCatching().getOrNull() as? Frame.Text ?: run {
-        sendEvent(ChatStreamEvent("error", error = "start command is required"))
-        outgoing.close()
+        outbound.sendEvent(ChatStreamEvent("error", error = "start command is required"))
         return null
     }
     val start = try {
         streamingJson.decodeFromString<ChatStreamRequest>(frame.readText())
     } catch (_: Exception) {
-        sendEvent(ChatStreamEvent("error", error = "invalid stream request"))
-        outgoing.close()
+        outbound.sendEvent(ChatStreamEvent("error", error = "invalid stream request"))
         return null
     }
     if (start.type != "start" || start.message.isNullOrBlank()) {
-        sendEvent(ChatStreamEvent("error", error = "start command with message is required"))
-        outgoing.close()
+        outbound.sendEvent(ChatStreamEvent("error", error = "start command with message is required"))
         return null
     }
     if (start.sessionId != null && runCatching { UUID.fromString(start.sessionId) }.isFailure) {
-        sendEvent(ChatStreamEvent("error", error = "sessionId must be a UUID"))
-        outgoing.close()
+        outbound.sendEvent(ChatStreamEvent("error", error = "sessionId must be a UUID"))
         return null
     }
     return start
@@ -112,11 +127,12 @@ private fun WebSocketServerSession.launchStreamingTurn(
     conversationService: ConversationService,
     ttsClient: StreamingTtsClient,
     start: ChatStreamRequest,
+    outbound: SendChannel<Frame>,
 ): Job = launch {
-    val textDeltas = Channel<String>(Channel.BUFFERED)
+    val textDeltas = Channel<String>(capacity = 1)
     val ttsJob = launch {
         ttsClient.synthesize(textDeltas.receiveAsFlow()).collect { pcm ->
-            send(Frame.Binary(fin = true, data = pcm))
+            outbound.send(Frame.Binary(fin = true, data = pcm))
         }
     }
     try {
@@ -124,35 +140,35 @@ private fun WebSocketServerSession.launchStreamingTurn(
             start.sessionId?.let(UUID::fromString),
             requireNotNull(start.message).trim(),
             onDelta = { delta ->
-                sendEvent(ChatStreamEvent("delta", delta = delta))
+                outbound.sendEvent(ChatStreamEvent("delta", delta = delta))
                 textDeltas.send(delta)
             },
-            onSession = { sessionId -> sendEvent(ChatStreamEvent("session", sessionId = sessionId.toString())) },
+            onSession = { sessionId -> outbound.sendEvent(ChatStreamEvent("session", sessionId = sessionId.toString())) },
         )
         textDeltas.close()
         ttsJob.join()
-        sendEvent(ChatStreamEvent("done", sessionId = result.sessionId.toString()))
+        outbound.sendEvent(ChatStreamEvent("done", sessionId = result.sessionId.toString()))
         streamingRoutesLogger.info("stream_completed sessionId={}", result.sessionId)
     } catch (_: SessionNotFoundException) {
-        sendEvent(ChatStreamEvent("error", error = "chat session not found"))
+        outbound.sendEvent(ChatStreamEvent("error", error = "chat session not found"))
     } catch (_: SessionFinishedException) {
-        sendEvent(ChatStreamEvent("error", error = "training session is already finished"))
+        outbound.sendEvent(ChatStreamEvent("error", error = "training session is already finished"))
     } catch (exception: GeminiException) {
-        sendEvent(ChatStreamEvent("error", error = exception.message ?: "Gemini stream failed"))
+        outbound.sendEvent(ChatStreamEvent("error", error = exception.message ?: "Gemini stream failed"))
     } catch (exception: ElevenLabsException) {
-        sendEvent(ChatStreamEvent("error", error = exception.message ?: "TTS stream failed"))
+        outbound.sendEvent(ChatStreamEvent("error", error = exception.message ?: "TTS stream failed"))
     } catch (exception: CancellationException) {
         throw exception
     } catch (_: Exception) {
-        sendEvent(ChatStreamEvent("error", error = "stream failed"))
+        outbound.sendEvent(ChatStreamEvent("error", error = "stream failed"))
     } finally {
         textDeltas.close()
         ttsJob.cancel()
-        outgoing.close()
+        outbound.close()
     }
 }
 
 /** Отправляет безопасный сериализованный text event клиенту. */
-private suspend fun WebSocketServerSession.sendEvent(event: ChatStreamEvent) {
+private suspend fun SendChannel<Frame>.sendEvent(event: ChatStreamEvent) {
     send(Frame.Text(streamingJson.encodeToString(ChatStreamEvent.serializer(), event)))
 }
