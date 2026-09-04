@@ -25,6 +25,7 @@ import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import speakingcharacter.api.ErrorResponse
 import speakingcharacter.api.registerChatRoutes
+import speakingcharacter.api.registerMonitoringRoutes
 import speakingcharacter.api.registerStreamingRoutes
 import speakingcharacter.config.AppConfig
 import speakingcharacter.db.DatabaseFactory
@@ -96,6 +97,7 @@ fun Application.module() {
         }
     }
     registerChatRoutes(conversationService, evaluationService)
+    registerMonitoringRoutes()
     registerStreamingRoutes(config, conversationService, ttsClient, simliSessionTokenClient)
     monitor.subscribe(ApplicationStopped) {
         geminiHttpClient.close()

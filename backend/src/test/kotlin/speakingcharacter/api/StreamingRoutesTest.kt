@@ -61,10 +61,12 @@ class StreamingRoutesTest {
             val session = incoming.receive() as Frame.Text
             val delta = incoming.receive() as Frame.Text
             val pcm = incoming.receive() as Frame.Binary
+            val metrics = incoming.receive() as Frame.Text
             val done = incoming.receive() as Frame.Text
 
             assertEquals("session", eventType(session))
             assertEquals("delta", eventType(delta))
+            assertEquals("metrics", eventType(metrics))
             assertEquals("done", eventType(done))
             assertContentEquals("Ответ".encodeToByteArray(), pcm.data)
         }

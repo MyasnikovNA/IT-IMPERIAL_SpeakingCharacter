@@ -9,15 +9,29 @@ data class ChatStreamRequest(
     val type: String,
     val sessionId: String? = null,
     val message: String? = null,
+    val turnId: String? = null,
 )
 
-/** Служебный text-кадр backend: session, delta, done либо error. */
+/** Служебный text-кадр backend: session, delta, metrics, done либо error. */
 @Serializable
 data class ChatStreamEvent(
     val type: String,
     val sessionId: String? = null,
     val delta: String? = null,
     val error: String? = null,
+    val turnId: String? = null,
+    val outcome: String? = null,
+    val metrics: Map<String, Long>? = null,
+)
+
+/** Метрики браузерного участка одного turn без transcript, аудио и иных чувствительных данных. */
+@Serializable
+data class BrowserLatencyMetricsRequest(
+    val turnId: String,
+    val sessionId: String? = null,
+    val outcome: String,
+    val metrics: Map<String, Long>,
+    val slo: Map<String, Boolean>,
 )
 
 /** Безопасный ответ выдачи Simli token без ключа API и Face ID. */

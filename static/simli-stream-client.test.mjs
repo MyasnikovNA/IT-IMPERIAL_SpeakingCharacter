@@ -24,6 +24,7 @@ class FakeSocket {
 
 test("relay передаёт PCM в Simli в порядке поступления", async () => {
     const audio = [];
+    let backendMetrics = null;
     const client = { sendAudioData: (pcm) => audio.push([...pcm]), ClearBuffer: () => {} };
     let sessionId = null;
     const relay = openSimliStream({
@@ -35,6 +36,7 @@ test("relay передаёт PCM в Simli в порядке поступлени
         onDelta: () => {},
         onFirstPcm: () => {},
         onDone: () => {},
+        onMetrics: (payload) => { backendMetrics = payload.metrics; },
         WebSocketImpl: FakeSocket
     });
     const socket = FakeSocket.instance;
@@ -43,11 +45,13 @@ test("relay передаёт PCM в Simli в порядке поступлени
     await socket.emitText({ type: "session", sessionId: "session-1" });
     await socket.emitPcm(new Uint8Array([1, 2]));
     await socket.emitPcm(new Uint8Array([3, 4]));
+    await socket.emitText({ type: "metrics", metrics: { gemini_first_delta: 120 } });
     await socket.emitText({ type: "done", sessionId: "session-1" });
     await relay.completion;
 
     assert.equal(sessionId, "session-1");
     assert.deepEqual(audio, [[1, 2], [3, 4]]);
+    assert.deepEqual(backendMetrics, { gemini_first_delta: 120 });
     assert.deepEqual(JSON.parse(socket.sent[0]), { type: "start", sessionId: null, message: "Текст" });
 });
 
@@ -63,6 +67,7 @@ test("отмена очищает Simli buffer и уведомляет backend",
         onDelta: () => {},
         onFirstPcm: () => {},
         onDone: () => {},
+        onMetrics: () => {},
         WebSocketImpl: FakeSocket
     });
     const socket = FakeSocket.instance;

@@ -8,6 +8,8 @@ export function openSimliStream({
     onDelta,
     onFirstPcm,
     onDone,
+    onMetrics,
+    turnId,
     WebSocketImpl = WebSocket
 }) {
 
@@ -29,7 +31,7 @@ export function openSimliStream({
     };
 
     socket.onopen = () => {
-        socket.send(JSON.stringify({ type: "start", sessionId, message }));
+        socket.send(JSON.stringify({ type: "start", sessionId, message, turnId }));
     };
     socket.onmessage = async (event) => {
         if (typeof event.data === "string") {
@@ -38,6 +40,8 @@ export function openSimliStream({
                 onSession(payload.sessionId);
             } else if (payload.type === "delta") {
                 onDelta();
+            } else if (payload.type === "metrics") {
+                onMetrics(payload);
             } else if (payload.type === "error") {
                 fail(new Error(payload.error || "Ошибка потокового ответа"));
             } else if (payload.type === "done" && !settled) {

@@ -1,4 +1,5 @@
 import { openSimliStream } from "./simli-stream-client.js";
+import { buildLatencyReport, createLatencyTurn, markLatency, reportLatency } from "./latency-monitor.js";
 
 const video =
     document.getElementById("avatar");
@@ -29,6 +30,9 @@ let avatarSpeaking = false;
 let simliSessionStartedAt = null;
 let simliSpeakingStartedAt = null;
 let simliSpeakingTotalMs = 0;
+let activeLatencyTurn = null;
+let pendingInterruptedTurn = null;
+let interruptionTimer = null;
 let chatSessionId = null;
 let appConfig = null;
 const pageStartedAt = performance.now();
@@ -42,6 +46,58 @@ function logTiming(event, startedAt, details = {}) {
         sincePageStartMs: Math.round(performance.now() - pageStartedAt),
         ...details
     });
+
+}
+
+/** Фиксирует browser latency stage и не пишет текст пользовательской реплики в консоль. */
+function markTurnLatency(turn, stage) {
+
+    const elapsedMs = markLatency(turn, stage);
+    console.info("[latency]", { turnId: turn.turnId, stage, elapsedMs });
+    return elapsedMs;
+
+}
+
+/** Публикует завершённый browser-отчёт; telemetry не должна влиять на разговор. */
+function finishTurnLatency(turn, config, outcome) {
+
+    if (!turn || turn.reported) {
+        return;
+    }
+
+    turn.reported = true;
+    const report = buildLatencyReport(turn, outcome);
+    console.info("[latency]", { turnId: report.turnId, outcome, metrics: report.metrics, slo: report.slo });
+    reportLatency(config.chat_api_url, report, turn.sessionId || chatSessionId)
+        .catch(() => console.warn("Не удалось передать latency-метрики"));
+
+}
+
+/** Отменяет текущую речь перед новым вводом и начинает измерение target 300 мс. */
+function interruptActiveTurn(config) {
+
+    if (!activeLatencyTurn) {
+        return;
+    }
+
+    const interruptedTurn = activeLatencyTurn;
+    interruptedTurn.interrupted = true;
+    markTurnLatency(interruptedTurn, "interruption_requested");
+    pendingInterruptedTurn = interruptedTurn;
+    activeLatencyTurn = null;
+
+    if (streamRelay) {
+        streamRelay.cancel();
+        streamRelay = null;
+    }
+    simliClient.ClearBuffer();
+    clearTimeout(interruptionTimer);
+    interruptionTimer = window.setTimeout(() => {
+        if (pendingInterruptedTurn === interruptedTurn) {
+            finishTurnLatency(interruptedTurn, config, "interruption_timeout");
+            pendingInterruptedTurn = null;
+        }
+    }, 300);
 
 }
 
@@ -298,6 +354,9 @@ async function connectSimli(config, connectStartedAt) {
     simliClient.on("speaking", () => {
         avatarSpeaking = true;
         simliSpeakingStartedAt = performance.now();
+        if (activeLatencyTurn) {
+            markTurnLatency(activeLatencyTurn, "simli_speaking");
+        }
         logTiming("simli_speaking", simliSessionStartedAt || connectStartedAt);
         setStatus("Аватар говорит...");
     });
@@ -309,6 +368,16 @@ async function connectSimli(config, connectStartedAt) {
                 speakingTotalMs: Math.round(simliSpeakingTotalMs)
             });
             simliSpeakingStartedAt = null;
+        }
+        if (pendingInterruptedTurn) {
+            markTurnLatency(pendingInterruptedTurn, "simli_silent");
+            finishTurnLatency(pendingInterruptedTurn, config, "interrupted");
+            pendingInterruptedTurn = null;
+            clearTimeout(interruptionTimer);
+        } else if (activeLatencyTurn && !streamRelay) {
+            markTurnLatency(activeLatencyTurn, "simli_silent");
+            finishTurnLatency(activeLatencyTurn, config, "completed");
+            activeLatencyTurn = null;
         }
         if (!streamRelay) {
             setStatus("Готов");
@@ -370,6 +439,7 @@ async function speak() {
 
         const config = await loadConfig();
         if (config.avatar_provider === "simli") {
+            interruptActiveTurn(config);
             await speakWithSimli(config, value, speakStartedAt);
             return;
         }
@@ -443,44 +513,70 @@ function streamUrl(chatApiUrl) {
 /** Передаёт Gemini text stream и PCM16 фреймы в уже подключённый Simli client. */
 async function speakWithSimli(config, message, speakStartedAt) {
 
-    if (avatarSpeaking) {
-        throw new Error("Аватар ещё озвучивает предыдущий ответ");
-    }
-
     setStatus("Запрашиваю потоковый ответ...");
+    const turn = createLatencyTurn(speakStartedAt);
+    activeLatencyTurn = turn;
     let receivedFirstPcm = false;
     let receivedFirstDelta = false;
 
-    streamRelay = openSimliStream({
+    const relay = openSimliStream({
         url: streamUrl(config.chat_api_url),
         sessionId: chatSessionId,
         message,
         simliClient,
-        onSession: (sessionId) => { chatSessionId = sessionId; },
+        turnId: turn.turnId,
+        onSession: (sessionId) => {
+            chatSessionId = sessionId;
+            turn.sessionId = sessionId;
+            markTurnLatency(turn, "session_received");
+        },
         onDelta: () => {
             if (!receivedFirstDelta) {
                 receivedFirstDelta = true;
+                markTurnLatency(turn, "gemini_first_delta");
                 logTiming("gemini_first_delta", speakStartedAt);
             }
         },
         onFirstPcm: (bytes) => {
             if (!receivedFirstPcm) {
                 receivedFirstPcm = true;
+                markTurnLatency(turn, "browser_first_pcm");
                 logTiming("browser_first_pcm", speakStartedAt, { bytes });
             }
         },
+        onMetrics: (payload) => {
+            turn.backendMetrics = payload.metrics;
+            console.info("[latency]", { turnId: turn.turnId, backend: payload.metrics, outcome: payload.outcome });
+        },
         onDone: (sessionId) => {
             chatSessionId = sessionId || chatSessionId;
+            turn.sessionId = chatSessionId;
+            markTurnLatency(turn, "stream_completed");
             logTiming("stream_completed", speakStartedAt, { sessionId: chatSessionId });
         }
     });
+    streamRelay = relay;
     try {
-        await streamRelay.completion;
+        await relay.completion;
+    } catch (error) {
+        if (turn.interrupted) {
+            return;
+        }
+        finishTurnLatency(turn, config, "stream_failed");
+        throw error;
     } finally {
-        streamRelay = null;
+        if (streamRelay === relay) {
+            streamRelay = null;
+        }
     }
 
     logTiming("speak_total", speakStartedAt, { sessionId: chatSessionId, provider: "simli" });
+    window.setTimeout(() => {
+        if (activeLatencyTurn === turn && !avatarSpeaking) {
+            finishTurnLatency(turn, config, "completed_without_avatar_signal");
+            activeLatencyTurn = null;
+        }
+    }, 3_000);
 }
 
 /** Отключает текущий avatar transport и отменяет незавершённый поток речи. */

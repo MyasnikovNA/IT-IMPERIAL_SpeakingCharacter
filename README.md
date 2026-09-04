@@ -116,7 +116,15 @@ STREAM_MIN_CHARS=50
 
 ## Метрики и стоимость
 
-Логи не содержат текста реплик, токенов или API keys. Backend фиксирует `gemini_first_delta`, `tts_first_audio`, `tts_stream_completed` (символы и байты PCM) и `stream_completed`. Frontend фиксирует `browser_first_pcm`, `simli_speaking`, `simli_silent` и длительности session/speaking.
+Логи не содержат текста реплик, токенов или API keys. Для каждого streaming-хода browser создаёт UUID `turnId`, который проходит через WebSocket и объединяет server/browser записи. Backend фиксирует `input_received`, `session_ready`, `gemini_first_delta`, `tts_first_audio` и `stream_completed`; браузер передаёт свои измерения в `POST /api/metrics`.
+
+Целевые SLO измеряются от нажатия «Говорить» с новой user-репликой:
+
+- `simli_speaking` ≤ **3000 мс** — фактическое начало ответа аватара;
+- `pcm_to_avatar_speaking_ms` ≤ **200 мс** — proxy синхронизации аудио с началом мимики по событию Simli `speaking`;
+- `interruption_to_silent_ms` ≤ **300 мс** — от отправки нового текста до события Simli `silent` после `ClearBuffer()`.
+
+Последняя метрика учитывает прерывание только после нового пользовательского ввода. Значение 200 мс является proxy, потому что SDK не отдаёт точные timestamps кадров видео и аудио: для покадровой проверки lip-sync потребуется телеметрия самого Simli или анализ записанного WebRTC-потока.
 
 Фактические символы, переданные ElevenLabs, логируются как `characters`; для сверки стоимости Flash использует 0.5 credits на символ, Multilingual v2 — 1 credit на символ согласно [правилам ElevenLabs](https://help.elevenlabs.io/hc/en-us/articles/27562020846481-What-are-credits). Simli usage следует сверять по длительности подключённой session и speaking с dashboard: сервис публично указывает 50 бесплатных минут в месяц и pay-as-you-go, но не фиксирует единую публичную ставку за минуту на [странице pricing](https://www.simli.com/). Кнопка «Отключить» закрывает avatar session, чтобы минуты не расходовались в простое.
 
