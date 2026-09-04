@@ -10,6 +10,8 @@ backend/.kotlin/
 backend/build/
 
 .env
+agent_id.txt
+client_key.txt
 
 .pytest_cache/
 .coverage

@@ -4,12 +4,17 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-speaking_character}
-      POSTGRES_USER: ${POSTGRES_USER:-speaking_character}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-speaking_character}
+      POSTGRES_USER: ${DATABASE_USER:-speaking_character}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-speaking_character}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
 
 volumes:
   postgres_data:

@@ -1,3 +1,5 @@
+"""Создаёт клиентский ключ D-ID для локального frontend."""
+
 import os
 import requests
 from dotenv import load_dotenv
@@ -5,6 +7,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 API_KEY = os.getenv("DID_API_KEY")
+
+if not API_KEY:
+    raise RuntimeError("Не найден DID_API_KEY в .env")
 
 with open("agent_id.txt", "r", encoding="utf-8") as f:
     agent_id = f.read().strip()
