@@ -45,6 +45,8 @@ browser ── WS start ──> Kotlin ── Gemini SSE ──> text delta
 
 Перед подключением frontend вызывает `POST /api/avatar/simli/session`. Backend запрашивает у Simli короткоживущий token с лимитами `SIMLI_MAX_SESSION_SECONDS` и `SIMLI_MAX_IDLE_SECONDS`, а браузеру отдаёт только `{ token, transport }`.
 
+План следующей ветки с пятью корпоративными тренировками, состоянием сценария и синхронизацией субтитров находится в [docs/training-scenarios-plan.md](docs/training-scenarios-plan.md).
+
 ## LLM architecture
 
 `ConversationService` координирует обычный и потоковый ход тренировки.
