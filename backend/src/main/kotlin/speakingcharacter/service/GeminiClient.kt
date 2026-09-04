@@ -20,29 +20,41 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import speakingcharacter.config.AppConfig
-import speakingcharacter.db.ChatMessage
-import speakingcharacter.db.ChatRole
+import speakingcharacter.model.LlmMessage
 
 /** Безопасная ошибка приложения: Gemini недоступен или вернул некорректный ответ. */
 class GeminiException(message: String) : RuntimeException(message)
 
 /** Минимальный HTTP-клиент Gemini без лишнего AI-фреймворка для MVP. */
-class GeminiClient(private val httpClient: HttpClient, private val config: AppConfig) {
+class GeminiClient(private val httpClient: HttpClient, private val config: AppConfig) : LlmClient {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
      * Генерирует один ответ ассистента по внешнему system prompt и хронологической истории.
      *
      * @param systemPrompt инструкции роли, загруженные из prompt-ресурса
-     * @param messages сохранённые реплики пользователя и ассистента с текущей репликой ровно один раз
+     * @param messages подготовленные реплики Gemini с текущей user-репликой ровно один раз
      */
-    suspend fun generate(systemPrompt: String, messages: List<ChatMessage>): String {
+    override suspend fun generate(systemPrompt: String, messages: List<LlmMessage>): String =
+        requestInference(systemPrompt, messages, 200, false)
+
+    /** Генерирует JSON-отчёт с увеличенным лимитом, не предназначенный для озвучивания. */
+    override suspend fun generateStructuredJson(systemPrompt: String, messages: List<LlmMessage>): String =
+        requestInference(systemPrompt, messages, 800, true)
+
+    /** Выполняет один Gemini запрос с заданным форматом и лимитом ответа. */
+    private suspend fun requestInference(
+        systemPrompt: String,
+        messages: List<LlmMessage>,
+        maxOutputTokens: Int,
+        structuredJson: Boolean,
+    ): String {
         val response = try {
             httpClient.post {
                 url("https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent")
                 header("x-goog-api-key", config.geminiApiKey)
                 contentType(ContentType.Application.Json)
-                setBody(requestBody(systemPrompt, messages))
+                setBody(requestBody(systemPrompt, messages, maxOutputTokens, structuredJson))
             }
         } catch (_: Exception) {
             throw GeminiException("Gemini request failed due to a network or client error")
@@ -55,20 +67,28 @@ class GeminiClient(private val httpClient: HttpClient, private val config: AppCo
         return extractText(response.bodyAsText())
     }
 
-    /** Сериализует запрос GenerateContent в REST-схему Gemini. */
-    private fun requestBody(systemPrompt: String, messages: List<ChatMessage>): JsonObject = buildJsonObject {
+    /** Сериализует GenerateContent с форматом обычного текста либо structured JSON. */
+    private fun requestBody(
+        systemPrompt: String,
+        messages: List<LlmMessage>,
+        maxOutputTokens: Int,
+        structuredJson: Boolean,
+    ): JsonObject = buildJsonObject {
         put("systemInstruction", contentPart(systemPrompt))
         put("contents", buildJsonArray {
             messages.forEach { message ->
                 add(
                     buildJsonObject {
-                        put("role", JsonPrimitive(if (message.role == ChatRole.USER) "user" else "model"))
+                        put("role", JsonPrimitive(message.role))
                         put("parts", buildJsonArray { add(buildJsonObject { put("text", JsonPrimitive(message.content)) }) })
                     },
                 )
             }
         })
-        put("generationConfig", buildJsonObject { put("maxOutputTokens", JsonPrimitive(200)) })
+        put("generationConfig", buildJsonObject {
+            put("maxOutputTokens", JsonPrimitive(maxOutputTokens))
+            if (structuredJson) put("responseMimeType", JsonPrimitive("application/json"))
+        })
     }
 
     /** Оборачивает текст инструкции в представление parts, требуемое Gemini. */

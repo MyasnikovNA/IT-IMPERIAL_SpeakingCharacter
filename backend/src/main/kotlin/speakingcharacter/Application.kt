@@ -8,6 +8,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
+import io.ktor.server.plugins.ContentTransformationException
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
@@ -21,17 +22,21 @@ import org.slf4j.LoggerFactory
 import speakingcharacter.api.ErrorResponse
 import speakingcharacter.api.registerChatRoutes
 import speakingcharacter.config.AppConfig
-import speakingcharacter.db.ChatRepository
 import speakingcharacter.db.DatabaseFactory
+import speakingcharacter.db.JdbcChatRepository
 import speakingcharacter.service.ConversationService
+import speakingcharacter.service.ConversationContextBuilder
 import speakingcharacter.service.GeminiClient
+import speakingcharacter.service.PromptProvider
 
 /** Настраивает и запускает все зависимости Kotlin backend чата. */
 fun Application.module() {
     val logger = LoggerFactory.getLogger("Application")
     val config = AppConfig.fromEnvironment()
-    val repository = ChatRepository(DatabaseFactory(config).connectAndMigrate())
-    val prompt = loadSystemPrompt()
+    val dataSource = DatabaseFactory(config).connectAndMigrate()
+    val chatRepository = JdbcChatRepository(dataSource)
+    val promptProvider = PromptProvider()
+    val contextBuilder = ConversationContextBuilder(config.maxContextMessages)
     val geminiClient = GeminiClient(HttpClient(CIO) {
         install(ClientContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
         install(HttpTimeout) {
@@ -40,7 +45,7 @@ fun Application.module() {
             socketTimeoutMillis = 15_000
         }
     }, config)
-    val conversationService = ConversationService(repository, geminiClient, prompt, config)
+    val conversationService = ConversationService(chatRepository, contextBuilder, promptProvider, geminiClient)
 
     install(ContentNegotiation) {
         json(Json { ignoreUnknownKeys = true })
@@ -53,6 +58,9 @@ fun Application.module() {
         allowHeader("Content-Type")
     }
     install(StatusPages) {
+        exception<ContentTransformationException> { call, _ ->
+            call.respond(HttpStatusCode.BadRequest, ErrorResponse("invalid request body"))
+        }
         exception<Throwable> { call, cause ->
             logger.error("Unhandled backend error", cause)
             call.respond(HttpStatusCode.InternalServerError, ErrorResponse("internal server error"))
@@ -60,11 +68,3 @@ fun Application.module() {
     }
     registerChatRoutes(conversationService)
 }
-
-/** Загружает заменяемый prompt роли из classpath. */
-private fun loadSystemPrompt(): String = Application::class.java.classLoader
-    .getResourceAsStream("prompts/demo_system_prompt.txt")
-    ?.bufferedReader()
-    ?.use { it.readText().trim() }
-    ?.takeIf { it.isNotEmpty() }
-    ?: throw IllegalStateException("System prompt resource is missing or empty")

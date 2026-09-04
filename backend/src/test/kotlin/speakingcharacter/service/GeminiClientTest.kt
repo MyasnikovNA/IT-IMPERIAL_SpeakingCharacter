@@ -17,9 +17,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import speakingcharacter.config.AppConfig
-import speakingcharacter.db.ChatMessage
-import speakingcharacter.db.ChatRole
-import java.time.Instant
+import speakingcharacter.model.LlmMessage
 
 /** Тестирует формирование запроса и обработку ответов GeminiClient. */
 class GeminiClientTest {
@@ -38,7 +36,7 @@ class GeminiClientTest {
 
         val result = gemini.generate(
             systemPrompt = "Ты корпоративный персонаж.",
-            messages = listOf(message(ChatRole.USER, "Здравствуйте"), message(ChatRole.ASSISTANT, "Добрый день")),
+            messages = listOf(message("user", "Здравствуйте"), message("model", "Добрый день")),
         )
 
         assertEquals("Готовый ответ", result)
@@ -62,9 +60,25 @@ class GeminiClientTest {
         )
         val gemini = GeminiClient(client, testConfig())
 
-        val result = gemini.generate("Инструкция", listOf(message(ChatRole.USER, "Текст")))
+        val result = gemini.generate("Инструкция", listOf(message("user", "Текст")))
 
         assertEquals("Первая часть и вторая часть", result)
+        client.close()
+    }
+
+    /** Запрашивает structured JSON с отдельным лимитом evaluation-ответа. */
+    @Test
+    fun `generate structured JSON requests JSON response format`() = runTest {
+        var requestBody = ""
+        val client = mockClient("""{"candidates":[{"content":{"parts":[{"text":"{}"}]}}]}""") { request ->
+            requestBody = (request.body as TextContent).text
+        }
+        val gemini = GeminiClient(client, testConfig())
+
+        gemini.generateStructuredJson("Инструкция", listOf(message("user", "Текст")))
+
+        assertContains(requestBody, "\"responseMimeType\":\"application/json\"")
+        assertContains(requestBody, "\"maxOutputTokens\":800")
         client.close()
     }
 
@@ -74,7 +88,7 @@ class GeminiClientTest {
         val client = mockClient("""{"error":{"message":"model unavailable"}}""", HttpStatusCode.NotFound)
         val gemini = GeminiClient(client, testConfig())
 
-        val error = geminiFailure { gemini.generate("Инструкция", listOf(message(ChatRole.USER, "Текст"))) }
+        val error = geminiFailure { gemini.generate("Инструкция", listOf(message("user", "Текст"))) }
 
         assertContains(error.message.orEmpty(), "HTTP 404")
         assertContains(error.message.orEmpty(), "GEMINI_MODEL")
@@ -87,7 +101,7 @@ class GeminiClientTest {
         val client = mockClient("""{"candidates":[]}""")
         val gemini = GeminiClient(client, testConfig())
 
-        val error = geminiFailure { gemini.generate("Инструкция", listOf(message(ChatRole.USER, "Текст"))) }
+        val error = geminiFailure { gemini.generate("Инструкция", listOf(message("user", "Текст"))) }
 
         assertContains(error.message.orEmpty(), "no candidates")
         client.close()
@@ -117,8 +131,7 @@ class GeminiClientTest {
     )
 
     /** Создаёт одно тестовое сообщение с постоянной меткой времени. */
-    private fun message(role: ChatRole, content: String): ChatMessage =
-        ChatMessage(role, content, Instant.parse("2026-01-01T00:00:00Z"))
+    private fun message(role: String, content: String): LlmMessage = LlmMessage(role, content)
 
     /** Выполняет suspend-действие и возвращает ожидаемую ошибку Gemini. */
     private suspend fun geminiFailure(action: suspend () -> Unit): GeminiException = try {

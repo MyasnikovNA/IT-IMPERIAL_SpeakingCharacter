@@ -1,59 +1,51 @@
-/** Координирует сохранение сессии, контекст, Gemini и запись ответа. */
+/** Координирует один ход активной тренировочной сессии. */
 package speakingcharacter.service
 
 import org.slf4j.LoggerFactory
-import speakingcharacter.config.AppConfig
-import speakingcharacter.db.ChatMessage
 import speakingcharacter.db.ChatRepository
-import speakingcharacter.db.ChatRole
+import speakingcharacter.model.ChatMessage
+import speakingcharacter.model.ChatRole
+import speakingcharacter.model.SessionStatus
 import java.util.UUID
 import kotlin.time.measureTime
 
-/** Данные ответа, возвращаемые после полного хода пользователя и ассистента. */
+/** Данные ответа, возвращаемые после одного завершённого хода диалога. */
 data class ConversationResult(val sessionId: UUID, val assistantMessage: String)
 
-/** Выполняет простой MVP-поток постоянной памяти диалога. */
+/** Выполняет persistence и inference workflow обычного хода training conversation. */
 class ConversationService(
-    private val repository: ChatRepository,
-    private val geminiClient: GeminiClient,
-    private val systemPrompt: String,
-    private val config: AppConfig,
+    private val chatRepository: ChatRepository,
+    private val contextBuilder: ConversationContextBuilder,
+    private val promptProvider: PromptProvider,
+    private val llmClient: LlmClient,
 ) {
     private val logger = LoggerFactory.getLogger(ConversationService::class.java)
 
-    /**
-     * Сохраняет реплику пользователя, вызывает Gemini с ограниченной историей и сохраняет ответ.
-     *
-     * @param requestedSessionId существующая сессия или null для начала диалога
-     * @param userMessage предварительно валидированный непустой ввод пользователя
-     */
+    /** Сохраняет user turn, генерирует assistant turn и возвращает ответ активной сессии. */
     suspend fun reply(requestedSessionId: UUID?, userMessage: String): ConversationResult {
-        val sessionId = requestedSessionId ?: repository.createSession()
-        if (requestedSessionId != null && !repository.sessionExists(sessionId)) {
-            throw NoSuchElementException("Chat session not found")
-        }
+        val session = requestedSessionId?.let { chatRepository.findSession(it) ?: throw SessionNotFoundException() }
+            ?: chatRepository.createSession("demo")
+        if (session.status == SessionStatus.FINISHED) throw SessionFinishedException()
 
-        repository.addMessage(sessionId, ChatRole.USER, userMessage)
-        val context = ContextWindow.select(repository.recentMessages(sessionId, config.maxContextMessages), config.maxContextMessages)
-        logger.info("Gemini request started for sessionId={}", sessionId)
+        chatRepository.addMessage(session.id, ChatRole.USER, userMessage)
+        val context = contextBuilder.build(chatRepository.recentMessages(session.id, contextBuilder.contextLimit()))
+        logger.info("Chat Gemini request started for sessionId={}", session.id)
         var assistantMessage: String? = null
         val duration = try {
-            measureTime {
-                assistantMessage = geminiClient.generate(systemPrompt, context)
-            }
+            measureTime { assistantMessage = llmClient.generate(promptProvider.getSystemPrompt(), context) }
         } catch (exception: GeminiException) {
-            logger.error("Gemini request failed for sessionId={}: {}", sessionId, exception.message)
+            logger.error("Chat Gemini request failed for sessionId={}: {}", session.id, exception.message)
             throw exception
         }
-        logger.info("Gemini request completed for sessionId={} durationMs={}", sessionId, duration.inWholeMilliseconds)
-        repository.addMessage(sessionId, ChatRole.ASSISTANT, requireNotNull(assistantMessage))
-        repository.touchSession(sessionId)
-        return ConversationResult(sessionId, requireNotNull(assistantMessage))
+        logger.info("Chat Gemini request completed for sessionId={} durationMs={}", session.id, duration.inWholeMilliseconds)
+        chatRepository.addMessage(session.id, ChatRole.ASSISTANT, requireNotNull(assistantMessage))
+        chatRepository.touchSession(session.id)
+        return ConversationResult(session.id, requireNotNull(assistantMessage))
     }
 
-    /** Возвращает полную хронологическую историю при существующей сессии. */
+    /** Возвращает полный сохранённый transcript запрошенной сессии. */
     fun history(sessionId: UUID): List<ChatMessage> {
-        if (!repository.sessionExists(sessionId)) throw NoSuchElementException("Chat session not found")
-        return repository.history(sessionId)
+        if (chatRepository.findSession(sessionId) == null) throw SessionNotFoundException()
+        return chatRepository.history(sessionId)
     }
 }
