@@ -8,6 +8,7 @@ import speakingcharacter.model.ChatRole
 import speakingcharacter.model.SessionStatus
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import kotlin.time.measureTime
 
@@ -51,6 +52,64 @@ class ConversationService(
             chatRepository.touchSession(session.id)
         }
         return ConversationResult(session.id, requireNotNull(assistantMessage))
+    }
+
+    /**
+     * Выполняет потоковый ход: сохраняет user-реплику заранее, а assistant-реплику —
+     * исключительно после штатного завершения Gemini stream.
+     *
+     * @param onDelta обработчик дельты, который передаёт текст в TTS и браузер
+     */
+    suspend fun replyStream(
+        requestedSessionId: UUID?,
+        userMessage: String,
+        onDelta: suspend (String) -> Unit,
+        onSession: suspend (UUID) -> Unit = {},
+    ): ConversationResult {
+        val session = withContext(Dispatchers.IO) {
+            requestedSessionId?.let { chatRepository.findSession(it) ?: throw SessionNotFoundException() }
+                ?: chatRepository.createSession("demo")
+        }
+        if (session.status == SessionStatus.FINISHED) throw SessionFinishedException()
+        onSession(session.id)
+
+        withContext(Dispatchers.IO) { chatRepository.addMessage(session.id, ChatRole.USER, userMessage) }
+        val context = contextBuilder.build(
+            withContext(Dispatchers.IO) {
+                chatRepository.recentMessages(session.id, contextBuilder.contextLimit())
+            },
+        )
+        val answer = StringBuilder()
+        val startedAt = System.nanoTime()
+        var firstDeltaLogged = false
+        logger.info("Chat Gemini stream started for sessionId={}", session.id)
+        try {
+            llmClient.generateStream(promptProvider.getSystemPrompt(), context).collect { delta ->
+                if (!firstDeltaLogged) {
+                    firstDeltaLogged = true
+                    logger.info("gemini_first_delta sessionId={} durationMs={}", session.id, (System.nanoTime() - startedAt) / 1_000_000)
+                }
+                answer.append(delta)
+                onDelta(delta)
+            }
+        } catch (exception: GeminiException) {
+            logger.error("Chat Gemini stream failed for sessionId={}: {}", session.id, exception.message)
+            throw exception
+        } finally {
+            logger.info(
+                "Chat Gemini stream ended sessionId={} durationMs={} completed={}",
+                session.id,
+                (System.nanoTime() - startedAt) / 1_000_000,
+                firstDeltaLogged,
+            )
+        }
+        val assistantMessage = answer.toString().trim()
+        if (assistantMessage.isEmpty()) throw GeminiException("Gemini returned an empty response")
+        withContext(Dispatchers.IO) {
+            chatRepository.addMessage(session.id, ChatRole.ASSISTANT, assistantMessage)
+            chatRepository.touchSession(session.id)
+        }
+        return ConversationResult(session.id, assistantMessage)
     }
 
     /** Возвращает полный сохранённый transcript запрошенной сессии. */
