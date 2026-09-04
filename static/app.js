@@ -18,16 +18,24 @@ const status =
 
 
 let agentManager = null;
+let chatSessionId = null;
+let appConfig = null;
 
-
+/** Обновляет отображаемый статус подключения или запроса. */
 function setStatus(message) {
 
     status.textContent = message;
 
 }
 
-
+/** Загружает и кэширует учётные данные D-ID и URL Kotlin Chat API. */
 async function loadConfig() {
+
+    if (appConfig) {
+
+        return appConfig;
+
+    }
 
     const response =
         await fetch("/api/config");
@@ -40,11 +48,13 @@ async function loadConfig() {
 
     }
 
-    return await response.json();
+    appConfig = await response.json();
+
+    return appConfig;
 
 }
 
-
+/** Подключает существующий менеджер D-ID и включает элементы управления диалогом. */
 async function connect() {
 
     try {
@@ -186,7 +196,7 @@ async function connect() {
 
 }
 
-
+/** Запрашивает ответ LLM у Kotlin backend и передаёт его в D-ID. */
 async function speak() {
 
     const value =
@@ -221,16 +231,33 @@ async function speak() {
             true;
 
 
-        setStatus(
-            "Аватар говорит..."
-        );
+        setStatus("Запрашиваю ответ...");
+
+        const config = await loadConfig();
+        const response = await fetch(`${config.chat_api_url}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                sessionId: chatSessionId,
+                message: value
+            })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            throw new Error(payload.error || "Ошибка chat backend");
+        }
+
+        chatSessionId = payload.sessionId;
+        setStatus("Аватар говорит...");
 
 
         await agentManager.speak({
 
             type: "text",
 
-            input: value
+            input: payload.assistantMessage
 
         });
 
@@ -260,7 +287,7 @@ async function speak() {
 
 }
 
-
+/** Отключает D-ID, сохраняя сессию чата в памяти до перезагрузки страницы. */
 async function disconnect() {
 
     if (!agentManager) {

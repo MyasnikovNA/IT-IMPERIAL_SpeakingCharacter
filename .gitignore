@@ -5,6 +5,10 @@ __pycache__/
 .venv/
 venv/
 
+backend/.gradle/
+backend/.kotlin/
+backend/build/
+
 .env
 
 .pytest_cache/
