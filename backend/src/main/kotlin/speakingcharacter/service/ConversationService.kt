@@ -7,6 +7,8 @@ import speakingcharacter.model.ChatMessage
 import speakingcharacter.model.ChatRole
 import speakingcharacter.model.SessionStatus
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.time.measureTime
 
 /** Данные ответа, возвращаемые после одного завершённого хода диалога. */
@@ -23,12 +25,18 @@ class ConversationService(
 
     /** Сохраняет user turn, генерирует assistant turn и возвращает ответ активной сессии. */
     suspend fun reply(requestedSessionId: UUID?, userMessage: String): ConversationResult {
-        val session = requestedSessionId?.let { chatRepository.findSession(it) ?: throw SessionNotFoundException() }
-            ?: chatRepository.createSession("demo")
+        val session = withContext(Dispatchers.IO) {
+            requestedSessionId?.let { chatRepository.findSession(it) ?: throw SessionNotFoundException() }
+                ?: chatRepository.createSession("demo")
+        }
         if (session.status == SessionStatus.FINISHED) throw SessionFinishedException()
 
-        chatRepository.addMessage(session.id, ChatRole.USER, userMessage)
-        val context = contextBuilder.build(chatRepository.recentMessages(session.id, contextBuilder.contextLimit()))
+        withContext(Dispatchers.IO) { chatRepository.addMessage(session.id, ChatRole.USER, userMessage) }
+        val context = contextBuilder.build(
+            withContext(Dispatchers.IO) {
+                chatRepository.recentMessages(session.id, contextBuilder.contextLimit())
+            },
+        )
         logger.info("Chat Gemini request started for sessionId={}", session.id)
         var assistantMessage: String? = null
         val duration = try {
@@ -38,14 +46,16 @@ class ConversationService(
             throw exception
         }
         logger.info("Chat Gemini request completed for sessionId={} durationMs={}", session.id, duration.inWholeMilliseconds)
-        chatRepository.addMessage(session.id, ChatRole.ASSISTANT, requireNotNull(assistantMessage))
-        chatRepository.touchSession(session.id)
+        withContext(Dispatchers.IO) {
+            chatRepository.addMessage(session.id, ChatRole.ASSISTANT, requireNotNull(assistantMessage))
+            chatRepository.touchSession(session.id)
+        }
         return ConversationResult(session.id, requireNotNull(assistantMessage))
     }
 
     /** Возвращает полный сохранённый transcript запрошенной сессии. */
-    fun history(sessionId: UUID): List<ChatMessage> {
+    suspend fun history(sessionId: UUID): List<ChatMessage> = withContext(Dispatchers.IO) {
         if (chatRepository.findSession(sessionId) == null) throw SessionNotFoundException()
-        return chatRepository.history(sessionId)
+        chatRepository.history(sessionId)
     }
 }

@@ -8,6 +8,8 @@ import speakingcharacter.model.SessionStatus
 import speakingcharacter.model.TrainingReport
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.time.measureTime
 
 /** Выполняет finish workflow без удержания JDBC-транзакции во время Gemini inference. */
@@ -22,13 +24,15 @@ class EvaluationService(
 
     /** Возвращает existing report либо генерирует, валидирует и сохраняет новый report. */
     suspend fun finishSession(sessionId: UUID): TrainingReport {
-        val session = chatRepository.findSession(sessionId) ?: throw SessionNotFoundException()
+        val session = withContext(Dispatchers.IO) {
+            chatRepository.findSession(sessionId) ?: throw SessionNotFoundException()
+        }
         if (session.status == SessionStatus.FINISHED) {
-            return evaluationRepository.findReport(sessionId)
+            return withContext(Dispatchers.IO) { evaluationRepository.findReport(sessionId) }
                 ?: throw EvaluationException("finished training session has no report")
         }
 
-        val transcript = chatRepository.history(sessionId)
+        val transcript = withContext(Dispatchers.IO) { chatRepository.history(sessionId) }
         if (transcript.isEmpty()) throw IllegalStateException("training session has no messages")
         logger.info("Evaluation Gemini request started for sessionId={}", sessionId)
         var rawEvaluation: String? = null
@@ -51,12 +55,12 @@ class EvaluationService(
             throw exception
         }
         val report = TrainingReport(UUID.randomUUID(), sessionId, result, Instant.now())
-        return evaluationRepository.saveReportAndFinishSession(report)
+        return withContext(Dispatchers.IO) { evaluationRepository.saveReportAndFinishSession(report) }
     }
 
     /** Возвращает существующий report либо сообщает, что он ещё не был сформирован. */
-    fun getReport(sessionId: UUID): TrainingReport {
+    suspend fun getReport(sessionId: UUID): TrainingReport = withContext(Dispatchers.IO) {
         if (chatRepository.findSession(sessionId) == null) throw SessionNotFoundException()
-        return evaluationRepository.findReport(sessionId) ?: throw NoSuchElementException("training report not found")
+        evaluationRepository.findReport(sessionId) ?: throw NoSuchElementException("training report not found")
     }
 }
