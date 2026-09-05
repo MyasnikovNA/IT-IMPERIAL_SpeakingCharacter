@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory
 import speakingcharacter.api.ErrorResponse
 import speakingcharacter.api.registerChatRoutes
 import speakingcharacter.api.registerMonitoringRoutes
+import speakingcharacter.api.registerScenarioRoutes
 import speakingcharacter.api.registerStreamingRoutes
 import speakingcharacter.config.AppConfig
 import speakingcharacter.db.DatabaseFactory
@@ -38,6 +39,7 @@ import speakingcharacter.service.GeminiClient
 import speakingcharacter.service.ElevenLabsStreamingTtsClient
 import speakingcharacter.service.PromptProvider
 import speakingcharacter.service.SimliSessionTokenClient
+import speakingcharacter.scenario.ScenarioCatalog
 
 /** Настраивает и запускает все зависимости Kotlin backend чата. */
 fun Application.module() {
@@ -47,6 +49,8 @@ fun Application.module() {
     val chatRepository = JdbcChatRepository(dataSource)
     val evaluationRepository = JdbcEvaluationRepository(dataSource)
     val promptProvider = PromptProvider()
+    // Каталог валидируется до приёма первого запроса: повреждённый preset не должен давать частично рабочий тренажёр.
+    val scenarioCatalog = ScenarioCatalog()
     val contextBuilder = ConversationContextBuilder(config.maxContextMessages)
     val geminiHttpClient = HttpClient(CIO) {
         install(ClientContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
@@ -100,6 +104,7 @@ fun Application.module() {
     }
     registerChatRoutes(conversationService, evaluationService)
     registerMonitoringRoutes()
+    registerScenarioRoutes(scenarioCatalog)
     registerStreamingRoutes(config, conversationService, ttsClient, simliSessionTokenClient)
     monitor.subscribe(ApplicationStopped) {
         geminiHttpClient.close()

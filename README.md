@@ -65,6 +65,7 @@ Assistant message сохраняется в PostgreSQL только после �
 ## API
 
 - `GET /health` → `{ "status": "ok" }`
+- `GET /api/scenarios` — пять доступных сценариев для экрана выбора. В ответ не включаются внутренние инструкции агенту.
 - `POST /api/chat` с `{ "sessionId": "UUID or null", "message": "..." }`
 - `GET /api/chat/{sessionId}/history` — хронологическая отладочная история
 
