@@ -1,3 +1,5 @@
+"""Создаёт публичного D-ID агента и сохраняет его идентификатор локально."""
+
 import os
 import requests
 from dotenv import load_dotenv

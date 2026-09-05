@@ -4,8 +4,15 @@ __pycache__/
 
 .venv/
 venv/
+.venv-python39-backup/
+
+backend/.gradle/
+backend/.kotlin/
+backend/build/
 
 .env
+agent_id.txt
+client_key.txt
 
 .pytest_cache/
 .coverage
