@@ -21,6 +21,8 @@ data class AppConfig(
     val elevenLabsVoiceId: String? = null,
     val elevenLabsModel: String = "eleven_flash_v2_5",
     val streamMinChars: Int = 50,
+    val elevenLabsIdleTimeoutMillis: Long = 15_000,
+    val ttsCompletionTimeoutMillis: Long = 30_000,
 ) {
     companion object {
         /** Собирает и валидирует runtime-конфигурацию из переменных окружения. */
@@ -32,6 +34,8 @@ data class AppConfig(
             val simliMaxSessionSeconds = positiveEnvironment("SIMLI_MAX_SESSION_SECONDS", "600")
             val simliMaxIdleSeconds = positiveEnvironment("SIMLI_MAX_IDLE_SECONDS", "60")
             val streamMinChars = positiveEnvironment("STREAM_MIN_CHARS", "50")
+            val elevenLabsIdleTimeoutMillis = positiveLongEnvironment("ELEVENLABS_IDLE_TIMEOUT_MILLIS", "15000")
+            val ttsCompletionTimeoutMillis = positiveLongEnvironment("TTS_COMPLETION_TIMEOUT_MILLIS", "30000")
             val simliTransport = environment("SIMLI_TRANSPORT", "livekit")
             val simliApiKey = optionalEnvironment("SIMLI_API_KEY")
             val simliFaceId = optionalEnvironment("SIMLI_FACE_ID")
@@ -68,6 +72,8 @@ data class AppConfig(
                 elevenLabsVoiceId = elevenLabsVoiceId,
                 elevenLabsModel = environment("ELEVENLABS_MODEL", "eleven_flash_v2_5"),
                 streamMinChars = streamMinChars,
+                elevenLabsIdleTimeoutMillis = elevenLabsIdleTimeoutMillis,
+                ttsCompletionTimeoutMillis = ttsCompletionTimeoutMillis,
             )
         }
 
@@ -81,6 +87,11 @@ data class AppConfig(
         /** Читает положительное целое значение конфигурации. */
         private fun positiveEnvironment(name: String, default: String): Int =
             environment(name, default).toIntOrNull()?.takeIf { it > 0 }
+                ?: throw IllegalStateException("$name must be a positive integer")
+
+        /** Читает положительное число миллисекунд для ограниченных ожиданий внешнего провайдера. */
+        private fun positiveLongEnvironment(name: String, default: String): Long =
+            environment(name, default).toLongOrNull()?.takeIf { it > 0 }
                 ?: throw IllegalStateException("$name must be a positive integer")
 
         /** Получает обязательный секрет, никогда не включая его значение в текст ошибки. */

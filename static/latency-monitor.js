@@ -1,7 +1,7 @@
 /** Собирает browser latency-метрики одного turn на монотонных performance clocks. */
 export const latencyTargets = Object.freeze({
     firstResponseAudioMs: 3_000,
-    avatarSyncMs: 200,
+    simliTransportProxyMs: 200,
     interruptionMs: 300
 });
 
@@ -35,7 +35,7 @@ export function buildLatencyReport(turn, outcome) {
         : undefined;
 
     if (sync !== undefined) {
-        metrics.pcm_to_avatar_speaking_ms = sync;
+        metrics.browser_pcm_to_simli_speaking_proxy_ms = sync;
     }
     if (interruption !== undefined) {
         metrics.interruption_to_silent_ms = interruption;
@@ -47,8 +47,10 @@ export function buildLatencyReport(turn, outcome) {
         metrics,
         slo: {
             first_response_audio: firstAudio !== undefined && firstAudio <= latencyTargets.firstResponseAudioMs,
-            avatar_sync_proxy: sync !== undefined && sync <= latencyTargets.avatarSyncMs,
             interruption: interruption !== undefined && interruption <= latencyTargets.interruptionMs
+        },
+        diagnostics: {
+            simli_transport_proxy_within_200ms: sync !== undefined && sync <= latencyTargets.simliTransportProxyMs
         }
     };
 }

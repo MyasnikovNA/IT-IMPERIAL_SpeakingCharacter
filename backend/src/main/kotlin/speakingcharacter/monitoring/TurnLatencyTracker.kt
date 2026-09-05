@@ -1,8 +1,7 @@
 /** Собирает монотонные latency-метрики одного потокового хода без текста и секретов. */
 package speakingcharacter.monitoring
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.Collections
 import org.slf4j.LoggerFactory
 
 /** Неизменяемый снимок latency одного хода, пригодный для structured logging и browser relay. */
@@ -22,27 +21,30 @@ class TurnLatencyTracker(
 ) {
     private val logger = LoggerFactory.getLogger(TurnLatencyTracker::class.java)
     private val startedAt = nanoTime()
-    private val stages = ConcurrentHashMap<String, Long>()
-    private val finished = AtomicBoolean(false)
+    private val lock = Any()
+    private val stages = mutableMapOf<String, Long>()
+    private var snapshot: TurnLatencySnapshot? = null
 
-    /** Фиксирует elapsed time этапа относительно получения user input и возвращает его в миллисекундах. */
-    fun mark(stage: String): Long {
+    /** Фиксирует elapsed time этапа относительно получения user input до завершения snapshot. */
+    fun mark(stage: String): Long = synchronized(lock) {
         require(stage.isNotBlank()) { "stage must not be blank" }
+        snapshot?.let { return@synchronized it.elapsedMillis[stage] ?: -1L }
         val elapsed = ((nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0)
-        val previous = stages.putIfAbsent(stage, elapsed)
+        val previous = stages[stage]
         if (previous == null) {
+            stages[stage] = elapsed
             logger.info("turn_latency_stage turnId={} stage={} elapsedMs={}", turnId, stage, elapsed)
             return elapsed
         }
         return previous
     }
 
-    /** Завершает измерение, однократно логирует structured snapshot и возвращает его вызывающему коду. */
-    fun finish(outcome: String): TurnLatencySnapshot {
-        val snapshot = TurnLatencySnapshot(turnId, outcome, stages.toSortedMap())
-        if (finished.compareAndSet(false, true)) {
-            logger.info("turn_latency_summary turnId={} outcome={} stages={}", turnId, outcome, snapshot.elapsedMillis)
-        }
-        return snapshot
+    /** Однократно фиксирует outcome и immutable snapshot, возвращая его всем конкурентным вызовам. */
+    fun finish(outcome: String): TurnLatencySnapshot = synchronized(lock) {
+        snapshot?.let { return@synchronized it }
+        val frozen = TurnLatencySnapshot(turnId, outcome, Collections.unmodifiableMap(stages.toSortedMap()))
+        snapshot = frozen
+        logger.info("turn_latency_summary turnId={} outcome={} stages={}", turnId, outcome, frozen.elapsedMillis)
+        frozen
     }
 }

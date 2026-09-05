@@ -13,12 +13,17 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import speakingcharacter.config.AppConfig
@@ -72,7 +77,7 @@ fun Application.registerStreamingRoutes(
                     return@webSocket
                 }
                 val start = receiveStart(outbound) ?: return@webSocket
-                work = launchStreamingTurn(conversationService, ttsClient, start, outbound)
+                work = launchStreamingTurn(config, conversationService, ttsClient, start, outbound)
                 for (frame in incoming) {
                     if (frame !is Frame.Text) continue
                     val command = try {
@@ -130,85 +135,97 @@ private suspend fun WebSocketServerSession.receiveStart(outbound: SendChannel<Fr
 
 /** Запускает один совместно отменяемый Gemini и ElevenLabs pipeline. */
 private fun WebSocketServerSession.launchStreamingTurn(
+    config: AppConfig,
     conversationService: ConversationService,
     ttsClient: StreamingTtsClient,
     start: ChatStreamRequest,
     outbound: SendChannel<Frame>,
 ): Job = launch {
-    val turnId = start.turnId ?: UUID.randomUUID().toString()
-    val tracker = TurnLatencyTracker(turnId)
-    tracker.mark("input_received")
-    val textDeltas = Channel<String>(capacity = 1)
-    var firstPcmReceived = false
-    var frameId = 0L
-    val ttsJob = launch {
-        ttsClient.synthesize(textDeltas.receiveAsFlow()).collect { frame ->
-            if (frame.pcm.isEmpty()) return@collect
-            if (!firstPcmReceived) {
-                firstPcmReceived = true
-                tracker.mark("tts_first_audio")
+    supervisorScope {
+        val turnId = start.turnId ?: UUID.randomUUID().toString()
+        val tracker = TurnLatencyTracker(turnId)
+        tracker.mark("input_received")
+        val textDeltas = Channel<String>(capacity = 1)
+        var firstPcmReceived = false
+        var frameId = 0L
+        val ttsJob = async {
+            try {
+                ttsClient.synthesize(textDeltas.receiveAsFlow()).collect { frame ->
+                    if (frame.pcm.isEmpty()) return@collect
+                    if (!firstPcmReceived) {
+                        firstPcmReceived = true
+                        tracker.mark("tts_first_audio")
+                    }
+                    val currentFrameId = frameId++
+                    val cues = SubtitleCueBuilder.build(frame.alignment).map { cue ->
+                        SubtitleCueEvent(cue.text, cue.startMs, cue.endMs)
+                    }
+                    outbound.sendEvent(ChatStreamEvent("audio_frame", turnId = turnId, frameId = currentFrameId, cues = cues))
+                    outbound.send(Frame.Binary(fin = true, data = frame.pcm))
+                }
+            } catch (exception: Throwable) {
+                textDeltas.close(exception)
+                throw exception
             }
-            val currentFrameId = frameId++
-            val cues = SubtitleCueBuilder.build(frame.alignment).map { cue ->
-                SubtitleCueEvent(cue.text, cue.startMs, cue.endMs)
-            }
-            outbound.sendEvent(ChatStreamEvent("audio_frame", turnId = turnId, frameId = currentFrameId, cues = cues))
-            outbound.send(Frame.Binary(fin = true, data = frame.pcm))
         }
-    }
-    suspend fun sendMetrics(outcome: String) {
-        val snapshot = tracker.finish(outcome)
-        outbound.sendEvent(
-            ChatStreamEvent(
-                type = "metrics",
-                turnId = snapshot.turnId,
-                outcome = snapshot.outcome,
-                metrics = snapshot.elapsedMillis,
-            ),
-        )
-    }
-    try {
-        val result = conversationService.replyStream(
-            start.sessionId?.let(UUID::fromString),
-            requireNotNull(start.message).trim(),
-            onDelta = { delta ->
-                tracker.mark("gemini_first_delta")
-                outbound.sendEvent(ChatStreamEvent("delta", delta = delta, turnId = turnId))
-                textDeltas.send(delta)
-            },
-            onSession = { sessionId ->
-                tracker.mark("session_ready")
-                outbound.sendEvent(ChatStreamEvent("session", sessionId = sessionId.toString(), turnId = turnId))
-            },
-        )
-        textDeltas.close()
-        ttsJob.join()
-        tracker.mark("stream_completed")
-        sendMetrics("completed")
-        outbound.sendEvent(ChatStreamEvent("done", sessionId = result.sessionId.toString(), turnId = turnId))
-        streamingRoutesLogger.info("stream_completed sessionId={} turnId={}", result.sessionId, turnId)
-    } catch (_: SessionNotFoundException) {
-        sendMetrics("not_found")
-        outbound.sendEvent(ChatStreamEvent("error", error = "chat session not found", turnId = turnId))
-    } catch (_: SessionFinishedException) {
-        sendMetrics("finished")
-        outbound.sendEvent(ChatStreamEvent("error", error = "training session is already finished", turnId = turnId))
-    } catch (exception: GeminiException) {
-        sendMetrics("gemini_failed")
-        outbound.sendEvent(ChatStreamEvent("error", error = exception.message ?: "Gemini stream failed", turnId = turnId))
-    } catch (exception: ElevenLabsException) {
-        sendMetrics("tts_failed")
-        outbound.sendEvent(ChatStreamEvent("error", error = exception.message ?: "TTS stream failed", turnId = turnId))
-    } catch (exception: CancellationException) {
-        tracker.finish("cancelled")
-        throw exception
-    } catch (_: Exception) {
-        sendMetrics("failed")
-        outbound.sendEvent(ChatStreamEvent("error", error = "stream failed", turnId = turnId))
-    } finally {
-        textDeltas.close()
-        ttsJob.cancel()
-        outbound.close()
+        suspend fun sendMetrics(outcome: String) {
+            val snapshot = tracker.finish(outcome)
+            outbound.sendEvent(
+                ChatStreamEvent(
+                    type = "metrics",
+                    turnId = snapshot.turnId,
+                    outcome = snapshot.outcome,
+                    metrics = snapshot.elapsedMillis,
+                ),
+            )
+        }
+        try {
+            val result = conversationService.replyStream(
+                start.sessionId?.let(UUID::fromString),
+                requireNotNull(start.message).trim(),
+                onDelta = { delta ->
+                    tracker.mark("gemini_first_delta")
+                    outbound.sendEvent(ChatStreamEvent("delta", delta = delta, turnId = turnId))
+                    textDeltas.send(delta)
+                },
+                onSession = { sessionId ->
+                    tracker.mark("session_ready")
+                    outbound.sendEvent(ChatStreamEvent("session", sessionId = sessionId.toString(), turnId = turnId))
+                },
+            )
+            textDeltas.close()
+            try {
+                withTimeout(config.ttsCompletionTimeoutMillis) { ttsJob.await() }
+            } catch (_: TimeoutCancellationException) {
+                throw ElevenLabsException("ElevenLabs streaming TTS completion timed out")
+            }
+            tracker.mark("stream_completed")
+            sendMetrics("completed")
+            outbound.sendEvent(ChatStreamEvent("done", sessionId = result.sessionId.toString(), turnId = turnId))
+            streamingRoutesLogger.info("stream_completed sessionId={} turnId={}", result.sessionId, turnId)
+        } catch (_: SessionNotFoundException) {
+            sendMetrics("not_found")
+            outbound.sendEvent(ChatStreamEvent("error", error = "chat session not found", turnId = turnId))
+        } catch (_: SessionFinishedException) {
+            sendMetrics("finished")
+            outbound.sendEvent(ChatStreamEvent("error", error = "training session is already finished", turnId = turnId))
+        } catch (exception: GeminiException) {
+            sendMetrics("gemini_failed")
+            outbound.sendEvent(ChatStreamEvent("error", error = exception.message ?: "Gemini stream failed", turnId = turnId))
+        } catch (exception: ElevenLabsException) {
+            sendMetrics("tts_failed")
+            outbound.sendEvent(ChatStreamEvent("error", error = exception.message ?: "TTS stream failed", turnId = turnId))
+        } catch (exception: CancellationException) {
+            tracker.finish("cancelled")
+            throw exception
+        } catch (_: Exception) {
+            sendMetrics("failed")
+            outbound.sendEvent(ChatStreamEvent("error", error = "stream failed", turnId = turnId))
+        } finally {
+            textDeltas.close()
+            ttsJob.cancelAndJoin()
+            outbound.close()
+        }
     }
 }
 

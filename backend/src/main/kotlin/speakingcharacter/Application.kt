@@ -67,7 +67,9 @@ fun Application.module() {
     val geminiClient = GeminiClient(geminiHttpClient, config, geminiStreamingHttpClient)
     val conversationService = ConversationService(chatRepository, contextBuilder, promptProvider, geminiClient)
     val evaluationService = EvaluationService(chatRepository, evaluationRepository, contextBuilder, promptProvider, geminiClient)
-    val elevenLabsHttpClient = HttpClient(CIO) { install(ClientWebSockets) }
+    val elevenLabsHttpClient = HttpClient(CIO) {
+        install(ClientWebSockets) { pingIntervalMillis = 10_000 }
+    }
     val simliHttpClient = HttpClient(CIO) { install(ClientContentNegotiation) { json(Json { ignoreUnknownKeys = true }) } }
     val ttsClient = ElevenLabsStreamingTtsClient(elevenLabsHttpClient, config)
     val simliSessionTokenClient = SimliSessionTokenClient(simliHttpClient, config)

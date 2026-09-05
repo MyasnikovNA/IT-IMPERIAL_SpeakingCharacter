@@ -24,4 +24,21 @@ class TurnLatencyTrackerTest {
         assertEquals("completed", snapshot.outcome)
         assertEquals(mapOf("gemini_first_delta" to 125L, "input_received" to 25L), snapshot.elapsedMillis)
     }
+
+    /** Возвращает первый immutable snapshot при конкурентных outcome и не добавляет поздние этапы. */
+    @Test
+    fun `tracker freezes first outcome and stages`() {
+        var now = 1_000_000_000L
+        val tracker = TurnLatencyTracker("00000000-0000-0000-0000-000000000002") { now }
+
+        tracker.mark("input_received")
+        val completed = tracker.finish("completed")
+        now += 50_000_000
+        tracker.mark("late_stage")
+        val cancelled = tracker.finish("cancelled")
+
+        assertEquals("completed", cancelled.outcome)
+        assertEquals(completed.elapsedMillis, cancelled.elapsedMillis)
+        assertEquals(null, cancelled.elapsedMillis["late_stage"])
+    }
 }

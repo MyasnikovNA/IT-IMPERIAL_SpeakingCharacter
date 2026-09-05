@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -69,7 +72,14 @@ class ElevenLabsStreamingTtsClient(
                     }
                     send(Frame.Text(json.encodeToString(JsonObject.serializer(), textMessage("", false))))
                 }
-                for (frame in incoming) {
+                while (true) {
+                    val frame = try {
+                        withTimeout(config.elevenLabsIdleTimeoutMillis) {
+                            incoming.receiveCatching().getOrNull()
+                        }
+                    } catch (_: TimeoutCancellationException) {
+                        throw ElevenLabsException("ElevenLabs streaming TTS timed out")
+                    } ?: throw ElevenLabsException("ElevenLabs streaming TTS closed before final frame")
                     if (frame !is Frame.Text) continue
                     val payload = parseAudio(frame.readText())
                     if (payload.pcm.isNotEmpty()) {
@@ -86,6 +96,8 @@ class ElevenLabsStreamingTtsClient(
                 outgoing.close()
             }
         } catch (exception: ElevenLabsException) {
+            throw exception
+        } catch (exception: CancellationException) {
             throw exception
         } catch (_: Exception) {
             throw ElevenLabsException("ElevenLabs streaming TTS failed")

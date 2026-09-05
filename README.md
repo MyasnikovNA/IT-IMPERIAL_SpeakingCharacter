@@ -107,10 +107,12 @@ SIMLI_MAX_IDLE_SECONDS=60
 ELEVENLABS_API_KEY=...
 ELEVENLABS_VOICE_ID=...
 ELEVENLABS_MODEL=eleven_flash_v2_5
+ELEVENLABS_IDLE_TIMEOUT_MILLIS=15000
+TTS_COMPLETION_TIMEOUT_MILLIS=30000
 STREAM_MIN_CHARS=50
 ```
 
-`livekit` выбран как устойчивый Simli transport без собственной ICE-конфигурации в приложении. Модель `eleven_flash_v2_5` запрашивается с `output_format=pcm_16000`, который напрямую принимает Simli SDK.
+`livekit` выбран как устойчивый Simli transport без собственной ICE-конфигурации в приложении. Модель `eleven_flash_v2_5` запрашивается с `output_format=pcm_16000`, который напрямую принимает Simli SDK. Client WebSocket отправляет ping раз в 10 секунд; `ELEVENLABS_IDLE_TIMEOUT_MILLIS` ограничивает ожидание следующего provider frame, а `TTS_COMPLETION_TIMEOUT_MILLIS` — финализацию всего TTS-потока после Gemini.
 
 Цель warm-connection — первое аудио до 1.5 секунды после отправки текста. Для реального smoke нужны ключи и Docker daemon: подключите аватар, произнесите одну короткую реплику и сопоставьте `gemini_first_delta`, `tts_first_audio`, `browser_first_pcm` и `simli_speaking`. Без ключей реальные vendor smoke намеренно не выполняются.
 
@@ -121,7 +123,7 @@ STREAM_MIN_CHARS=50
 Целевые SLO измеряются от нажатия «Говорить» с новой user-репликой:
 
 - `simli_speaking` ≤ **3000 мс** — фактическое начало ответа аватара;
-- `pcm_to_avatar_speaking_ms` ≤ **200 мс** — proxy синхронизации аудио с началом мимики по событию Simli `speaking`;
+- `browser_pcm_to_simli_speaking_proxy_ms` — diagnostic proxy от первого PCM в браузере до Simli `speaking`; порог **200 мс** не подтверждает фактический lip-sync без media timestamps или анализа WebRTC-записи;
 - `interruption_to_silent_ms` ≤ **300 мс** — от отправки нового текста до события Simli `silent` после `ClearBuffer()`.
 
 Последняя метрика учитывает прерывание только после нового пользовательского ввода. Значение 200 мс является proxy, потому что SDK не отдаёт точные timestamps кадров видео и аудио: для покадровой проверки lip-sync потребуется телеметрия самого Simli или анализ записанного WebRTC-потока.

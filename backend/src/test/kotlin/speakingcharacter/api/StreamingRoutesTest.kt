@@ -12,10 +12,12 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import speakingcharacter.config.AppConfig
 import speakingcharacter.config.AvatarProvider
@@ -78,11 +80,72 @@ class StreamingRoutesTest {
         }
     }
 
+    /** Возвращает browser error и outcome tts_failed, если дочерний TTS-поток завершается ошибкой. */
+    @Test
+    fun `stream websocket reports TTS failure instead of silent cancellation`() = testApplication {
+        installStreamingRoute(FailingTtsClient(), testConfig())
+        val client = createClient { install(ClientWebSockets) }
+
+        client.webSocket("/api/chat/stream") {
+            send(Frame.Text("""{"type":"start","message":"Здравствуйте"}"""))
+
+            assertEquals("session", eventType(incoming.receive() as Frame.Text))
+            assertEquals("delta", eventType(incoming.receive() as Frame.Text))
+            val metrics = incoming.receive() as Frame.Text
+            val error = incoming.receive() as Frame.Text
+
+            assertEquals("metrics", eventType(metrics))
+            assertContains(metrics.readText(), "tts_failed")
+            assertEquals("error", eventType(error))
+            assertContains(error.readText(), "TTS unavailable")
+        }
+    }
+
+    /** Ограничивает ожидание TTS, который не завершается после закрытия Gemini stream. */
+    @Test
+    fun `stream websocket times out hanging TTS and sends error`() = testApplication {
+        installStreamingRoute(HangingTtsClient(), testConfig(ttsCompletionTimeoutMillis = 50))
+        val client = createClient { install(ClientWebSockets) }
+
+        client.webSocket("/api/chat/stream") {
+            send(Frame.Text("""{"type":"start","message":"Здравствуйте"}"""))
+
+            assertEquals("session", eventType(incoming.receive() as Frame.Text))
+            assertEquals("delta", eventType(incoming.receive() as Frame.Text))
+            val metrics = incoming.receive() as Frame.Text
+            val error = incoming.receive() as Frame.Text
+
+            assertEquals("metrics", eventType(metrics))
+            assertContains(metrics.readText(), "tts_failed")
+            assertEquals("error", eventType(error))
+            assertContains(error.readText(), "completion timed out")
+        }
+    }
+
+    /** Регистрирует минимальный streaming-маршрут с указанной TTS fake для failure-проверок. */
+    private fun io.ktor.server.testing.ApplicationTestBuilder.installStreamingRoute(ttsClient: StreamingTtsClient, config: AppConfig) {
+        val conversationService = ConversationService(
+            MemoryRepository(),
+            ConversationContextBuilder(20),
+            PromptProvider(),
+            FixedLlmClient(),
+        )
+        application {
+            install(ServerWebSockets)
+            registerStreamingRoutes(
+                config,
+                conversationService,
+                ttsClient,
+                SimliSessionTokenClient(HttpClient(MockEngine { error("Simli token endpoint не вызывается") }), config),
+            )
+        }
+    }
+
     /** Извлекает тип из server text frame без зависимости от private JSON объекта routes. */
     private fun eventType(frame: Frame.Text): String = frame.readText().substringAfter("\"type\":\"").substringBefore('"')
 
     /** Возвращает streaming-конфигурацию с секретами только для backend-ветки теста. */
-    private fun testConfig(): AppConfig = AppConfig(
+    private fun testConfig(ttsCompletionTimeoutMillis: Long = 30_000): AppConfig = AppConfig(
         geminiApiKey = "gemini-key",
         geminiModel = "model",
         databaseUrl = "jdbc:postgresql://unused",
@@ -95,6 +158,7 @@ class StreamingRoutesTest {
         simliFaceId = "face-id",
         elevenLabsApiKey = "eleven-key",
         elevenLabsVoiceId = "voice-id",
+        ttsCompletionTimeoutMillis = ttsCompletionTimeoutMillis,
     )
 
     /** Минимально сохраняет transcript, необходимый ConversationService. */
@@ -153,6 +217,22 @@ class StreamingRoutesTest {
                     ),
                 )
             }
+        }
+    }
+
+    /** Завершается ошибкой после старта, моделируя отказ ElevenLabs. */
+    private class FailingTtsClient : StreamingTtsClient {
+        /** Сообщает безопасную provider-ошибку без отмены родительского WebSocket job. */
+        override fun synthesize(textDeltas: Flow<String>): Flow<TtsAudioFrame> = kotlinx.coroutines.flow.flow {
+            throw speakingcharacter.service.ElevenLabsException("TTS unavailable")
+        }
+    }
+
+    /** Не завершается до отмены, моделируя provider без final frame. */
+    private class HangingTtsClient : StreamingTtsClient {
+        /** Удерживает collect открытым до bounded cancellation маршрута. */
+        override fun synthesize(textDeltas: Flow<String>): Flow<TtsAudioFrame> = kotlinx.coroutines.flow.flow {
+            awaitCancellation()
         }
     }
 }

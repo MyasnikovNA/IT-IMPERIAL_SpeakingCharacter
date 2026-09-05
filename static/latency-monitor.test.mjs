@@ -12,11 +12,11 @@ test("отчёт проверяет целевые latency для первого
     const report = buildLatencyReport(turn, "completed");
 
     assert.equal(report.metrics.simli_speaking, 1_150);
-    assert.equal(report.metrics.pcm_to_avatar_speaking_ms, 150);
+    assert.equal(report.metrics.browser_pcm_to_simli_speaking_proxy_ms, 150);
     assert.equal(report.metrics.interruption_to_silent_ms, 280);
     assert.deepEqual(report.slo, {
         first_response_audio: true,
-        avatar_sync_proxy: true,
         interruption: true
     });
+    assert.deepEqual(report.diagnostics, { simli_transport_proxy_within_200ms: true });
 });
