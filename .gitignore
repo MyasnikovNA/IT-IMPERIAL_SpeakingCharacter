@@ -1,31 +1,37 @@
+.env
+.env.*
+
+.gradle/
+build/
+out/
+
+.idea/
+*.iml
+local.properties
+
 __pycache__/
 *.py[cod]
 *.egg-info/
-
 .venv/
 venv/
 .venv-python39-backup/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
 
 backend/.gradle/
 backend/.kotlin/
 backend/build/
 
-.env
 agent_id.txt
 client_key.txt
 
-.pytest_cache/
-.coverage
-htmlcov/
-
-.mypy_cache/
-
-.idea/
 .vscode/
-
 uploads/
 exports/
 
 *.log
 
 .DS_Store
+Thumbs.db

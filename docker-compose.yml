@@ -1,4 +1,3 @@
-# Локальный экземпляр PostgreSQL для Kotlin backend чата.
 services:
   postgres:
     image: postgres:16-alpine
@@ -14,7 +13,24 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 2s
       timeout: 3s
-      retries: 15
+      retries: 20
+
+  backend:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      STORAGE_BACKEND: postgres
+      DATABASE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-speaking_character}
+      DATABASE_USER: ${DATABASE_USER:-speaking_character}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-speaking_character}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
 
 volumes:
   postgres_data:

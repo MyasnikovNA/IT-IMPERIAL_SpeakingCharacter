@@ -1,208 +1,274 @@
-# Speaking Character — MVP backend
+# Speaking Character — integrated backend
 
-FastAPI-приложение на порту `8000` отдаёт frontend, а Kotlin/Ktor-сервис на `8080` отвечает за LLM и постоянную память диалога в PostgreSQL. Провайдер аватара выбирается `AVATAR_PROVIDER`: `did` сохраняет синхронный D-ID путь, а `simli` включает Gemini SSE → ElevenLabs WebSocket → PCM16 → Simli WebRTC.
+Единый Kotlin/Ktor backend, собранный из трёх backend-направлений проекта:
 
-В Simli-режиме браузер открывает только исходящие WebSocket/WebRTC-соединения: открытый IP, туннель и публичный callback endpoint не нужны. Ключи Gemini, ElevenLabs и Simli не передаются frontend.
+- **backend** — WebSocket training session, `generationId`, barge-in/cancellation, Gemini streaming, отчёт и метрики;
+- **llm-service** — совместимый `/api/chat`, PostgreSQL/Flyway, ограничение LLM-контекста;
+- **simli-rnd** — `AVATAR_PROVIDER=did|simli`, Simli session token, Gemini → ElevenLabs PCM16 → Simli WebSocket pipeline и browser latency telemetry.
 
-## Локальный запуск
+Frontend-контракты из `llm-service`/`simli-rnd` сохранены, поэтому frontend не должен знать о внутреннем `TrainingSessionManager`.
 
-Скопируйте шаблон конфигурации, укажите ключ Gemini и выберите провайдера. Заполненный файл игнорируется Git.
-Для Kotlin-сервиса нужна JDK 17 или новее.
+## Что получилось
 
-```bash
-cp .env.example .env
-# Укажите GEMINI_API_KEY и AVATAR_PROVIDER в .env
-set -a; source .env; set +a
-docker compose up -d --wait postgres
-cd backend && ./gradlew run
-```
+### Один источник истины для диалога
 
-В старых версиях Docker Compose без `--wait` используйте `docker compose up -d postgres` и дождитесь состояния `healthy` вручную.
+`TrainingSessionManager` теперь обслуживает все входы:
 
-В другом терминале с теми же экспортированными переменными окружения запустите существующий frontend:
+- `POST /api/chat` — синхронный контракт llm-service/D-ID frontend;
+- `WS /api/chat/stream` — потоковый Simli контракт;
+- `WS /ws/training/{sessionId}` — расширенный backend protocol с явным `generationId`;
+- `/api/sessions/*` — исходный training API.
 
-```bash
-uvicorn app:app --reload --port 8000
-```
+История, `latestGenerationId`, partial/interrupted assistant messages, метрики и итоговый report сохраняются одной моделью сессии.
 
-Откройте `http://localhost:8000`. Frontend получает безопасный `CHAT_API_URL`, `AVATAR_PROVIDER` и, только для D-ID режима, его публичные данные из `GET /api/config`.
+### Barge-in / race safety
 
-Схема БД применяется Flyway автоматически. При первом запуске Gradle Wrapper скачает Gradle 8.11.1. Для smoke-проверки используйте `curl http://localhost:8080/health`.
+- для каждой сессии существует один активный generation job;
+- новая генерация сначала повышает `generationId`, затем отменяет старую через `cancelAndJoin()`;
+- поздние токены старого generation отбрасываются;
+- `interrupt(N)` не может отменить уже начавшийся `N+1`;
+- при отмене частично сгенерированный ответ сохраняется как `interrupted=true`.
 
-## Architecture
+### LLM
 
-Обычный D-ID путь остаётся совместимым с MVP. При `AVATAR_PROVIDER=simli` используется отдельный WebSocket API, поэтому один frontend не дублирует озвучивание и не расходует кредиты двух провайдеров.
+- Gemini streaming используется и для обычного training WS, и для Simli pipeline;
+- в prompt передаются только последние `MAX_CONTEXT_MESSAGES` сообщений;
+- fallback-модели разрешены только **до первой выданной дельты**, чтобы при ошибке не повторить уже произнесённый текст.
 
-```text
-browser ── WS start ──> Kotlin ── Gemini SSE ──> text delta
-   │                       │                       │
-   │ <── JSON delta ───────┘                       │
-   │                                               v
-   │ <── PCM16 binary ── ElevenLabs WebSocket <────┘
-   │
-   └── Simli SDK sendAudioData(PCM16) ── WebRTC/livekit ──> avatar
-```
+### Storage
 
-Перед подключением frontend вызывает `POST /api/avatar/simli/session`. Backend запрашивает у Simli короткоживущий token с лимитами `SIMLI_MAX_SESSION_SECONDS` и `SIMLI_MAX_IDLE_SECONDS`, а браузеру отдаёт только `{ token, transport }`.
+Поддержаны два режима:
 
-План следующей ветки с пятью корпоративными тренировками, состоянием сценария и синхронизацией субтитров находится в [docs/training-scenarios-plan.md](docs/training-scenarios-plan.md).
+- `STORAGE_BACKEND=file` — исходное JSON-хранилище;
+- `STORAGE_BACKEND=postgres` — PostgreSQL + HikariCP + Flyway.
 
-## LLM architecture
+PostgreSQL хранит полный session aggregate в `integrated_training_sessions.payload JSONB`. Это делает обновление истории + generation/report полей атомарным и не конфликтует со старыми `chat_sessions/chat_messages/training_reports` из веток llm-service/simli-rnd.
 
-`ConversationService` координирует обычный и потоковый ход тренировки.
-`ConversationContextBuilder` формирует context, а `PromptProvider` предоставляет prompts.
-`GeminiClient` выполняет обычный inference и Gemini SSE. Резервная модель используется только до первой streaming-дельты; после первой дельты ошибка завершает поток без повтора уже озвученного текста.
-`ElevenLabsStreamingTtsClient` один раз подключается к ElevenLabs на ход, отправляет фрагменты только по границе слова и возвращает `pcm_16000`.
-Assistant message сохраняется в PostgreSQL только после штатного окончания Gemini stream. User message сохраняется раньше, в том числе при ошибке или отмене.
-После finish `EvaluationService` передаёт полный transcript Gemini и сохраняет structured report.
-
-## Conversation memory
-
-В PostgreSQL сохраняется вся история сессии.
-В обычный LLM turn передаются только последние `MAX_CONTEXT_MESSAGES` реплик.
-Итоговая evaluation использует полный transcript; для длинных диалогов summarization пока не реализована.
+> Старые строки из `chat_sessions/chat_messages` автоматически не импортируются. Таблицы не удаляются и не меняются. Если на окружении уже есть ценные исторические данные из старой схемы, их нужно мигрировать отдельным data-migration перед переключением production traffic.
 
 ## API
 
-- `GET /health` → `{ "status": "ok" }`
-- `GET /api/scenarios` — пять доступных сценариев для экрана выбора. В ответ не включаются внутренние инструкции агенту.
-- `POST /api/scenarios/validate` — проверяет загруженный Markdown-сценарий и возвращает его безопасную карточку, ничего не сохраняя.
-- `POST /api/chat` с `{ "sessionId": "UUID or null", "message": "..." }`
-- `GET /api/chat/{sessionId}/history` — хронологическая отладочная история
+### Health
 
-`MAX_CONTEXT_MESSAGES` ограничивает число последних сообщений `USER`/`ASSISTANT`, передаваемых Gemini. Реплика пользователя сохраняется до построения этого окна, поэтому в запрос к LLM она попадает ровно один раз.
+```http
+GET /health
+```
 
-### Выбор сценария новой тренировки
-
-При первом запросе сценарий необязателен. Его отсутствие оставляет свободный диалог с текущим `demo_system_prompt.txt`. Для preset укажите `scenario.presetId`; для одноразового Markdown-файла — `scenario.markdown`. Backend валидирует файл, сохраняет нормализованный snapshot сессии и отвергает попытку заменить сценарий в следующих репликах.
+Пример:
 
 ```json
+{
+  "status": "ok",
+  "storage": "postgres",
+  "avatarProvider": "simli"
+}
+```
+
+### Frontend config
+
+```http
+GET /api/config
+```
+
+D-ID:
+
+```json
+{
+  "avatar_provider": "did",
+  "chat_api_url": "http://localhost:8080",
+  "agent_id": "...",
+  "client_key": "..."
+}
+```
+
+Simli:
+
+```json
+{
+  "avatar_provider": "simli",
+  "chat_api_url": "http://localhost:8080"
+}
+```
+
+Simli/ElevenLabs API keys и Face ID в браузер не выдаются.
+
+### llm-service compatibility API
+
+```http
+POST /api/chat
+Content-Type: application/json
+
 {
   "sessionId": null,
-  "message": "Начнём тренировку",
-  "scenario": { "presetId": "sales-discovery" }
+  "message": "Здравствуйте",
+  "scenario": "optional",
+  "criteria": "optional"
 }
 ```
 
-Проверка файла без запуска диалога:
-
-```bash
-curl -X POST http://localhost:8080/api/scenarios/validate \
-  -H "Content-Type: application/json" \
-  --data-binary @custom-scenario-request.json
-```
-
-`custom-scenario-request.json` содержит `{ "markdown": "..." }`; лимит исходного Markdown — 32 КБ. Загруженный файл не добавляется в общий каталог и существует только в snapshot созданной сессии.
-
-### Пример запроса чата
-
-```bash
-curl -X POST http://localhost:8080/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId":null,"message":"Меня зовут Тарас"}'
-```
+Ответ:
 
 ```json
 {
-  "sessionId": "...",
-  "assistantMessage": "..."
+  "sessionId": "uuid",
+  "assistantMessage": "...",
+  "generationId": 0
 }
 ```
 
-### Потоковый Simli WebSocket
+Также:
 
-После подключения аватара frontend открывает `ws://localhost:8080/api/chat/stream` и отправляет:
+- `GET /api/chat/{sessionId}/history`
+- `POST /api/chat/{sessionId}/finish`
+- `GET /api/chat/{sessionId}/report`
 
-```json
-{ "type": "start", "sessionId": null, "message": "Расскажите о следующем шаге" }
+### Simli streaming
+
+1. Получить короткоживущий token:
+
+```http
+POST /api/avatar/simli/session
 ```
 
-Сервер возвращает text frames `session`, `delta`, затем бинарные PCM16 frames и финальный `done`. Команда `{ "type": "cancel" }` отменяет Gemini и ElevenLabs coroutine; frontend одновременно вызывает `SimliClient.ClearBuffer()` и закрывает соединение.
+2. Открыть:
 
-## Simli + ElevenLabs configuration
+```text
+ws://localhost:8080/api/chat/stream
+```
 
-Для потокового режима укажите в локальном `.env`:
+3. Начать turn:
+
+```json
+{
+  "type": "start",
+  "sessionId": null,
+  "message": "Здравствуйте",
+  "turnId": "optional-uuid"
+}
+```
+
+Backend выдаёт:
+
+```text
+session
+text delta ...
+audio_frame metadata
+<binary PCM16>
+...
+metrics
+done
+```
+
+Отмена:
+
+```json
+{ "type": "cancel" }
+```
+
+Backend отменяет активный generation/TTS pipeline; frontend одновременно должен вызвать `SimliClient.ClearBuffer()`.
+
+### Extended training WebSocket
+
+```text
+/ws/training/{sessionId}
+```
+
+Сохраняется исходный protocol:
+
+```json
+{"type":"user_message","generationId":1,"text":"Здравствуйте"}
+```
+
+```json
+{"type":"interrupt","generationId":1}
+```
+
+Server events: `connected`, `generation_started`, `assistant_delta`, `assistant_segment`, `assistant_completed`, `generation_cancelled`, `stale_generation`, `report_ready`, `error`.
+
+## Конфигурация
+
+Скопировать:
 
 ```bash
+cp .env.example .env
+```
+
+Минимум для D-ID:
+
+```dotenv
+GEMINI_API_KEY=...
+AVATAR_PROVIDER=did
+DID_AGENT_ID=...
+DID_CLIENT_KEY=...
+```
+
+Для Simli:
+
+```dotenv
+GEMINI_API_KEY=...
 AVATAR_PROVIDER=simli
 SIMLI_API_KEY=...
 SIMLI_FACE_ID=...
-SIMLI_TRANSPORT=livekit
-SIMLI_MAX_SESSION_SECONDS=600
-SIMLI_MAX_IDLE_SECONDS=60
 ELEVENLABS_API_KEY=...
 ELEVENLABS_VOICE_ID=...
-ELEVENLABS_MODEL=eleven_flash_v2_5
-ELEVENLABS_IDLE_TIMEOUT_MILLIS=15000
-TTS_COMPLETION_TIMEOUT_MILLIS=30000
-STREAM_MIN_CHARS=50
 ```
 
-`livekit` выбран как устойчивый Simli transport без собственной ICE-конфигурации в приложении. Модель `eleven_flash_v2_5` запрашивается с `output_format=pcm_16000`, который напрямую принимает Simli SDK. Client WebSocket отправляет ping раз в 10 секунд; `ELEVENLABS_IDLE_TIMEOUT_MILLIS` ограничивает ожидание следующего provider frame, а `TTS_COMPLETION_TIMEOUT_MILLIS` — финализацию всего TTS-потока после Gemini.
+Backend понимает и старые названия из соседних веток:
 
-Цель warm-connection — первое аудио до 1.5 секунды после отправки текста. Для реального smoke нужны ключи и Docker daemon: подключите аватар, произнесите одну короткую реплику и сопоставьте `gemini_first_delta`, `tts_first_audio`, `browser_first_pcm` и `simli_speaking`. Без ключей реальные vendor smoke намеренно не выполняются.
+- `CHAT_API_URL` используется как fallback для `PUBLIC_API_URL`;
+- `FRONTEND_HOST` используется как fallback для `ALLOWED_ORIGINS`;
+- наличие `DATABASE_URL` автоматически выбирает PostgreSQL, если `STORAGE_BACKEND` явно не указан.
 
-## Метрики и стоимость
+## Запуск
 
-Логи не содержат текста реплик, токенов или API keys. Для каждого streaming-хода browser создаёт UUID `turnId`, который проходит через WebSocket и объединяет server/browser записи. Backend фиксирует `input_received`, `session_ready`, `gemini_first_delta`, `tts_first_audio` и `stream_completed`; браузер передаёт свои измерения в `POST /api/metrics`.
-
-Целевые SLO измеряются от нажатия «Говорить» с новой user-репликой:
-
-- `simli_speaking` ≤ **3000 мс** — фактическое начало ответа аватара;
-- `browser_pcm_to_simli_speaking_proxy_ms` — diagnostic proxy от первого PCM в браузере до Simli `speaking`; порог **200 мс** не подтверждает фактический lip-sync без media timestamps или анализа WebRTC-записи;
-- `interruption_to_silent_ms` ≤ **300 мс** — от отправки нового текста до события Simli `silent` после `ClearBuffer()`.
-
-Последняя метрика учитывает прерывание только после нового пользовательского ввода. Значение 200 мс является proxy, потому что SDK не отдаёт точные timestamps кадров видео и аудио: для покадровой проверки lip-sync потребуется телеметрия самого Simli или анализ записанного WebRTC-потока.
-
-Фактические символы, переданные ElevenLabs, логируются как `characters`; для сверки стоимости Flash использует 0.5 credits на символ, Multilingual v2 — 1 credit на символ согласно [правилам ElevenLabs](https://help.elevenlabs.io/hc/en-us/articles/27562020846481-What-are-credits). Simli usage следует сверять по длительности подключённой session и speaking с dashboard: сервис публично указывает 50 бесплатных минут в месяц и pay-as-you-go, но не фиксирует единую публичную ставку за минуту на [странице pricing](https://www.simli.com/). Кнопка «Отключить» закрывает avatar session, чтобы минуты не расходовались в простое.
-
-### История сессии
+### Docker Compose
 
 ```bash
-curl http://localhost:8080/api/chat/<SESSION_ID>/history
+cp .env.example .env
+# заполнить ключи
+
+docker compose up --build
 ```
 
-## Finish training
+Compose поднимает PostgreSQL и backend на `localhost:8080`.
+
+### Локально
+
+Нужна JDK 17:
 
 ```bash
-curl -X POST http://localhost:8080/api/chat/<SESSION_ID>/finish
+./gradlew test
+./gradlew run
 ```
 
-Повторный finish возвращает уже сохранённый report и не запускает Gemini повторно.
-
-## Get report
+Smoke:
 
 ```bash
-curl http://localhost:8080/api/chat/<SESSION_ID>/report
+curl http://localhost:8080/health
 ```
 
-## Report structure
+## Frontend
 
-```json
-{
-  "sessionId": "...",
-  "overallScore": 4,
-  "summary": "Тренировка в целом пройдена успешно.",
-  "recommendations": ["Чётче проговаривать следующий шаг"],
-  "criteria": [
-    {
-      "name": "Полнота ответа",
-      "score": 4,
-      "comment": "Основные элементы ответа присутствуют.",
-      "evidence": "Пользователь обозначил следующий шаг."
-    }
-  ]
-}
+- **D-ID frontend** может использовать `POST /api/chat` и озвучивать `assistantMessage`, как в llm-service.
+- **simli-rnd frontend** совместим с `/api/avatar/simli/session`, `/api/chat/stream` и `/api/metrics`.
+- Для более продвинутого D-ID barge-in можно использовать `frontend-integration.js` и `/ws/training/{sessionId}`.
+
+То есть выбирать нужно один avatar path на клиенте; backend при этом использует одну session/history модель.
+
+## Проверка этого merge
+
+В текущей изолированной среде выполнены:
+
+- проверка структуры всех четырёх переданных архивов;
+- `node --check frontend-integration.js`;
+- локальная компиляция и runtime-check независимого `AppConfig.kt` через установленный `kotlinc`;
+- синтаксический проход по Kotlin source (без найденных parser-level ошибок);
+- добавлены unit-тесты для env compatibility и TTS text/alignment helpers.
+
+Полный `./gradlew test` здесь **не завершён**, потому что Gradle Wrapper не может скачать дистрибутив/зависимости: runtime окружение не имеет DNS/сетевого доступа к `services.gradle.org`/Maven. Это ограничение среды проверки, а не успешный build. Перед merge в основную ветку обязательно запустить в вашей CI/локальной среде:
+
+```bash
+./gradlew clean test
 ```
 
-## Not implemented yet
-
-Сознательно отложены после MVP:
-
-- interruption / barge-in;
-- STT / VAD;
-- generationId;
-- advanced scenario engine;
-- context summarization;
-- RAG;
-- production authentication.
+и затем хотя бы один vendor smoke для выбранного avatar provider.
