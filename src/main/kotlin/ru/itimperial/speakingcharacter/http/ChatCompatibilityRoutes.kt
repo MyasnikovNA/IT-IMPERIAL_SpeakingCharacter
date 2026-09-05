@@ -171,6 +171,5 @@ private fun TrainingReport.toChatDto(sessionId: String): ChatReportDto = ChatRep
     summary = summary,
     recommendations = recommendations,
     criteria = criteria,
-    mistakes = mistakes,
     evaluationStatus = evaluationStatus,
 )

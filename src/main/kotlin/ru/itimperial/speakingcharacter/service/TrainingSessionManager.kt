@@ -189,7 +189,8 @@ class TrainingSessionManager(
                 return@withLock session
             }
 
-            val report = reportService.build(session.messages, session.criteria)
+            val expectedCriteria = session.scenarioSnapshot?.definition?.criteria ?: DEFAULT_EVALUATION_CRITERIA
+            val report = reportService.build(session.messages, expectedCriteria)
             val finished = repository.update(sessionId) { latest ->
                 latest.copy(
                     status = SessionStatus.FINISHED,
@@ -330,6 +331,10 @@ class TrainingSessionManager(
                 ),
             )
         }
+    }
+
+    private companion object {
+        val DEFAULT_EVALUATION_CRITERIA = listOf("Полнота ответа", "Следование сценарию", "Качество коммуникации")
     }
 
     private fun runtimeFor(session: TrainingSession): SessionRuntime =

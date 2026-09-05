@@ -62,7 +62,7 @@ fun appModule(config: AppConfig) = module {
     single(createdAtStart = true) { ScenarioCatalog() }
     single { ScenarioResolver(get()) }
     single { ScenarioPromptProvider() }
-    single { ReportService(get(), get(), get()) }
+    single { ReportService(get(), get()) }
     single {
         TrainingSessionManager(
             repository = get(),

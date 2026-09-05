@@ -66,11 +66,10 @@ data class HistoryResponse(
 data class ChatReportDto(
     val sessionId: String,
     val generatedAt: String,
-    val overallScore: Double? = null,
+    val overallScore: Int,
     val summary: String,
     val recommendations: List<String> = emptyList(),
     val criteria: List<CriterionScore> = emptyList(),
-    val mistakes: List<String> = emptyList(),
     val evaluationStatus: String,
 )
 

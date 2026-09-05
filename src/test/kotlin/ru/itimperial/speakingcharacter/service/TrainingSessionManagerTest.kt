@@ -30,6 +30,57 @@ import ru.itimperial.speakingcharacter.scenario.ScenarioSelection
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TrainingSessionManagerTest {
+    /** Повторный finish возвращает сохранённый отчёт и не повторяет вызов Gemini. */
+    @Test
+    fun `finish is idempotent`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = InMemoryRepository()
+        var evaluationCalls = 0
+        val llm = object : LlmClient {
+            override fun streamReply(history: List<TrainingMessage>, systemPrompt: String): Flow<String> = flow { emit("answer") }
+            override suspend fun generateText(prompt: String, systemPrompt: String, jsonMode: Boolean): String {
+                evaluationCalls++
+                return validEvaluationJson()
+            }
+        }
+        val manager = manager(repo, llm, testConfig(), dispatcher)
+        val session = manager.createSession()
+        manager.submitUserMessage(session.id, 1, "ответ")
+        advanceUntilIdle()
+
+        val first = manager.finish(session.id)
+        val second = manager.finish(session.id)
+
+        assertEquals(1, evaluationCalls)
+        assertEquals(first.report, second.report)
+        assertEquals(ru.itimperial.speakingcharacter.model.SessionStatus.FINISHED, second.status)
+    }
+
+    /** Ошибка evaluation не завершает активную тренировочную сессию. */
+    @Test
+    fun `failed evaluation keeps session active`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = InMemoryRepository()
+        val llm = object : LlmClient {
+            override fun streamReply(history: List<TrainingMessage>, systemPrompt: String): Flow<String> = flow { emit("answer") }
+            override suspend fun generateText(prompt: String, systemPrompt: String, jsonMode: Boolean) = "not-json"
+        }
+        val manager = manager(repo, llm, testConfig(), dispatcher)
+        val session = manager.createSession(ScenarioSelection(presetId = "sales-discovery"))
+        manager.submitUserMessage(session.id, 1, "ответ")
+        advanceUntilIdle()
+
+        try {
+            manager.finish(session.id)
+            error("Expected EvaluationException")
+        } catch (_: EvaluationException) {
+            // Ожидаемая ошибка не должна менять статус session aggregate.
+        }
+        val saved = requireNotNull(repo.get(session.id))
+        assertEquals(ru.itimperial.speakingcharacter.model.SessionStatus.ACTIVE, saved.status)
+        assertEquals(null, saved.report)
+    }
+
     /** Закрепляет выбранный сценарий в сессии и передаёт его только в system prompt. */
     @Test
     fun `session keeps scenario snapshot for subsequent generation`() = runTest {
@@ -100,7 +151,7 @@ class TrainingSessionManagerTest {
 
     /** Создаёт менеджер с реальными сценарными зависимостями и тестовыми adapters. */
     private fun manager(repo: InMemoryRepository, llm: LlmClient, config: AppConfig, dispatcher: TestDispatcher): TrainingSessionManager {
-        val reportService = ReportService(llm, config, Json { ignoreUnknownKeys = true })
+        val reportService = ReportService(llm, Json { ignoreUnknownKeys = true })
         return TrainingSessionManager(
             repository = repo,
             llmClient = llm,
@@ -124,6 +175,13 @@ class TrainingSessionManagerTest {
         trainingSystemPrompt = "test",
         trainingCriteria = null,
     )
+
+    private fun validEvaluationJson() = """
+        {"overallScore":4,"summary":"Итог","recommendations":["Практикуйте уточняющие вопросы"],"criteria":[
+        {"name":"Полнота ответа","score":4,"comment":"Комментарий","evidence":"Факт"},
+        {"name":"Следование сценарию","score":4,"comment":"Комментарий","evidence":"Факт"},
+        {"name":"Качество коммуникации","score":4,"comment":"Комментарий","evidence":"Факт"}]}
+    """.trimIndent()
 
     private class InMemoryRepository : TrainingRepository {
         private val data = linkedMapOf<String, TrainingSession>()

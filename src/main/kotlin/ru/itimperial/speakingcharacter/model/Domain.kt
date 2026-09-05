@@ -28,8 +28,9 @@ data class TrainingMessage(
 @Serializable
 data class CriterionScore(
     val name: String,
-    val score: Double? = null,
+    val score: Int,
     val comment: String,
+    val evidence: String,
 )
 
 @Serializable
@@ -44,9 +45,8 @@ data class TrainingMetric(
 data class TrainingReport(
     val generatedAt: String,
     val summary: String,
-    val overallScore: Double? = null,
+    val overallScore: Int,
     val criteria: List<CriterionScore> = emptyList(),
-    val mistakes: List<String> = emptyList(),
     val recommendations: List<String> = emptyList(),
     val evaluationStatus: String,
 )
