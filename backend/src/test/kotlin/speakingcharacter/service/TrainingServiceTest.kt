@@ -2,6 +2,8 @@
 package speakingcharacter.service
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -123,5 +125,8 @@ class TrainingServiceTest {
             structuredGenerationCalls += 1
             return """{"overallScore":4,"summary":"Итог","recommendations":["Совет"],"criteria":[{"name":"Полнота ответа","score":4,"comment":"Комментарий","evidence":"Фрагмент"},{"name":"Следование сценарию","score":4,"comment":"Комментарий","evidence":"Фрагмент"},{"name":"Качество коммуникации","score":4,"comment":"Комментарий","evidence":"Фрагмент"}]}"""
         }
+
+        /** Возвращает одну тестовую дельту для соблюдения streaming-контракта. */
+        override fun generateStream(systemPrompt: String, messages: List<LlmMessage>): Flow<String> = flowOf("Ответ")
     }
 }

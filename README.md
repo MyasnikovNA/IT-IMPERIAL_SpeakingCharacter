@@ -1,15 +1,17 @@
 # Speaking Character — MVP backend
 
-Существующее FastAPI-приложение продолжает отдавать D-ID frontend на порту `8000`. Новый Kotlin/Ktor-сервис на порту `8080` отвечает только за запрос к LLM и память диалога в PostgreSQL. D-ID полностью остаётся в браузере: он озвучивает `assistantMessage`, полученное из Kotlin API.
+FastAPI-приложение на порту `8000` отдаёт frontend, а Kotlin/Ktor-сервис на `8080` отвечает за LLM и постоянную память диалога в PostgreSQL. Провайдер аватара выбирается `AVATAR_PROVIDER`: `did` сохраняет синхронный D-ID путь, а `simli` включает Gemini SSE → ElevenLabs WebSocket → PCM16 → Simli WebRTC.
+
+В Simli-режиме браузер открывает только исходящие WebSocket/WebRTC-соединения: открытый IP, туннель и публичный callback endpoint не нужны. Ключи Gemini, ElevenLabs и Simli не передаются frontend.
 
 ## Локальный запуск
 
-Скопируйте шаблон конфигурации и укажите ключ Gemini. Заполненный файл игнорируется Git.
+Скопируйте шаблон конфигурации, укажите ключ Gemini и выберите провайдера. Заполненный файл игнорируется Git.
 Для Kotlin-сервиса нужна JDK 17 или новее.
 
 ```bash
 cp .env.example .env
-# Укажите GEMINI_API_KEY в .env
+# Укажите GEMINI_API_KEY и AVATAR_PROVIDER в .env
 set -a; source .env; set +a
 docker compose up -d --wait postgres
 cd backend && ./gradlew run
@@ -23,24 +25,33 @@ cd backend && ./gradlew run
 uvicorn app:app --reload --port 8000
 ```
 
-Откройте `http://localhost:8000`. Frontend получает `CHAT_API_URL` из `GET /api/config`; по умолчанию используется `http://localhost:8080`.
+Откройте `http://localhost:8000`. Frontend получает безопасный `CHAT_API_URL`, `AVATAR_PROVIDER` и, только для D-ID режима, его публичные данные из `GET /api/config`.
 
 Схема БД применяется Flyway автоматически. При первом запуске Gradle Wrapper скачает Gradle 8.11.1. Для smoke-проверки используйте `curl http://localhost:8080/health`.
 
 ## Architecture
 
-Browser frontend отправляет запрос в Kotlin `POST /api/chat`.
-Kotlin backend сохраняет и загружает историю из PostgreSQL, затем передаёт ограниченный контекст Gemini.
-Ответ Gemini возвращается как `assistantMessage`.
-Frontend передаёт только этот ответ в `D-ID agentManager.speak()`.
-FastAPI продолжает только отдавать frontend и его конфигурацию.
-Kotlin отвечает за LLM и память диалога, а D-ID — за голос и аватар.
+Обычный D-ID путь остаётся совместимым с MVP. При `AVATAR_PROVIDER=simli` используется отдельный WebSocket API, поэтому один frontend не дублирует озвучивание и не расходует кредиты двух провайдеров.
+
+```text
+browser ── WS start ──> Kotlin ── Gemini SSE ──> text delta
+   │                       │                       │
+   │ <── JSON delta ───────┘                       │
+   │                                               v
+   │ <── PCM16 binary ── ElevenLabs WebSocket <────┘
+   │
+   └── Simli SDK sendAudioData(PCM16) ── WebRTC/livekit ──> avatar
+```
+
+Перед подключением frontend вызывает `POST /api/avatar/simli/session`. Backend запрашивает у Simli короткоживущий token с лимитами `SIMLI_MAX_SESSION_SECONDS` и `SIMLI_MAX_IDLE_SECONDS`, а браузеру отдаёт только `{ token, transport }`.
 
 ## LLM architecture
 
-`ConversationService` координирует обычный ход тренировки.
+`ConversationService` координирует обычный и потоковый ход тренировки.
 `ConversationContextBuilder` формирует context, а `PromptProvider` предоставляет prompts.
-`GeminiClient` выполняет только inference, после чего PostgreSQL сохраняет assistant message.
+`GeminiClient` выполняет обычный inference и Gemini SSE. Резервная модель используется только до первой streaming-дельты; после первой дельты ошибка завершает поток без повтора уже озвученного текста.
+`ElevenLabsStreamingTtsClient` один раз подключается к ElevenLabs на ход, отправляет фрагменты только по границе слова и возвращает `pcm_16000`.
+Assistant message сохраняется в PostgreSQL только после штатного окончания Gemini stream. User message сохраняется раньше, в том числе при ошибке или отмене.
 После finish `EvaluationService` передаёт полный transcript Gemini и сохраняет structured report.
 
 ## Conversation memory
@@ -71,6 +82,53 @@ curl -X POST http://localhost:8080/api/chat \
   "assistantMessage": "..."
 }
 ```
+
+### Потоковый Simli WebSocket
+
+После подключения аватара frontend открывает `ws://localhost:8080/api/chat/stream` и отправляет:
+
+```json
+{ "type": "start", "sessionId": null, "message": "Расскажите о следующем шаге" }
+```
+
+Сервер возвращает text frames `session`, `delta`, затем бинарные PCM16 frames и финальный `done`. Команда `{ "type": "cancel" }` отменяет Gemini и ElevenLabs coroutine; frontend одновременно вызывает `SimliClient.ClearBuffer()` и закрывает соединение.
+
+## Simli + ElevenLabs configuration
+
+Для потокового режима укажите в локальном `.env`:
+
+```bash
+AVATAR_PROVIDER=simli
+SIMLI_API_KEY=...
+SIMLI_FACE_ID=...
+SIMLI_TRANSPORT=livekit
+SIMLI_MAX_SESSION_SECONDS=600
+SIMLI_MAX_IDLE_SECONDS=60
+ELEVENLABS_API_KEY=...
+ELEVENLABS_VOICE_ID=...
+ELEVENLABS_MODEL=eleven_flash_v2_5
+ELEVENLABS_IDLE_TIMEOUT_MILLIS=15000
+TTS_COMPLETION_TIMEOUT_MILLIS=30000
+STREAM_MIN_CHARS=50
+```
+
+`livekit` выбран как устойчивый Simli transport без собственной ICE-конфигурации в приложении. Модель `eleven_flash_v2_5` запрашивается с `output_format=pcm_16000`, который напрямую принимает Simli SDK. Client WebSocket отправляет ping раз в 10 секунд; `ELEVENLABS_IDLE_TIMEOUT_MILLIS` ограничивает ожидание следующего provider frame, а `TTS_COMPLETION_TIMEOUT_MILLIS` — финализацию всего TTS-потока после Gemini.
+
+Цель warm-connection — первое аудио до 1.5 секунды после отправки текста. Для реального smoke нужны ключи и Docker daemon: подключите аватар, произнесите одну короткую реплику и сопоставьте `gemini_first_delta`, `tts_first_audio`, `browser_first_pcm` и `simli_speaking`. Без ключей реальные vendor smoke намеренно не выполняются.
+
+## Метрики и стоимость
+
+Логи не содержат текста реплик, токенов или API keys. Для каждого streaming-хода browser создаёт UUID `turnId`, который проходит через WebSocket и объединяет server/browser записи. Backend фиксирует `input_received`, `session_ready`, `gemini_first_delta`, `tts_first_audio` и `stream_completed`; браузер передаёт свои измерения в `POST /api/metrics`.
+
+Целевые SLO измеряются от нажатия «Говорить» с новой user-репликой:
+
+- `simli_speaking` ≤ **3000 мс** — фактическое начало ответа аватара;
+- `browser_pcm_to_simli_speaking_proxy_ms` — diagnostic proxy от первого PCM в браузере до Simli `speaking`; порог **200 мс** не подтверждает фактический lip-sync без media timestamps или анализа WebRTC-записи;
+- `interruption_to_silent_ms` ≤ **300 мс** — от отправки нового текста до события Simli `silent` после `ClearBuffer()`.
+
+Последняя метрика учитывает прерывание только после нового пользовательского ввода. Значение 200 мс является proxy, потому что SDK не отдаёт точные timestamps кадров видео и аудио: для покадровой проверки lip-sync потребуется телеметрия самого Simli или анализ записанного WebRTC-потока.
+
+Фактические символы, переданные ElevenLabs, логируются как `characters`; для сверки стоимости Flash использует 0.5 credits на символ, Multilingual v2 — 1 credit на символ согласно [правилам ElevenLabs](https://help.elevenlabs.io/hc/en-us/articles/27562020846481-What-are-credits). Simli usage следует сверять по длительности подключённой session и speaking с dashboard: сервис публично указывает 50 бесплатных минут в месяц и pay-as-you-go, но не фиксирует единую публичную ставку за минуту на [странице pricing](https://www.simli.com/). Кнопка «Отключить» закрывает avatar session, чтобы минуты не расходовались в простое.
 
 ### История сессии
 
@@ -115,7 +173,6 @@ curl http://localhost:8080/api/chat/<SESSION_ID>/report
 
 Сознательно отложены после MVP:
 
-- streaming LLM response и SSE/WebSocket;
 - interruption / barge-in;
 - STT / VAD;
 - generationId;

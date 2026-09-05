@@ -11,6 +11,7 @@ import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -21,6 +22,26 @@ import speakingcharacter.model.LlmMessage
 
 /** Тестирует формирование запроса и обработку ответов GeminiClient. */
 class GeminiClientTest {
+    /** Читает Gemini SSE data-события как отдельные дельты и не использует обычный endpoint. */
+    @Test
+    fun `generate stream reads SSE text deltas`() = runTest {
+        var requestUrl = ""
+        val client = mockClient(
+            """data: {"candidates":[{"content":{"parts":[{"text":"Добрый "}]}}]}
+
+data: {"candidates":[{"content":{"parts":[{"text":"день"}]}}]}
+
+""",
+        ) { request -> requestUrl = request.url.toString() }
+        val gemini = GeminiClient(client, testConfig())
+
+        val deltas = gemini.generateStream("Инструкция", listOf(message("user", "Текст"))).toList()
+
+        assertEquals(listOf("Добрый ", "день"), deltas)
+        assertContains(requestUrl, ":streamGenerateContent?alt=sse")
+        client.close()
+    }
+
     /** Передаёт system prompt и роли сообщений Gemini, а затем возвращает текст кандидата. */
     @Test
     fun `generate serializes conversation and returns candidate text`() = runTest {
@@ -48,7 +69,7 @@ class GeminiClientTest {
         assertContains(requestBody, "\"role\":\"model\"")
         assertContains(requestBody, "Здравствуйте")
         assertContains(requestBody, "Добрый день")
-        assertContains(requestBody, "\"maxOutputTokens\":2048")
+        assertContains(requestBody, "\"maxOutputTokens\":200")
         client.close()
     }
 

@@ -2,6 +2,7 @@
 package speakingcharacter.service
 
 import speakingcharacter.model.LlmMessage
+import kotlinx.coroutines.flow.Flow
 
 /** Выполняет текстовую и structured JSON генерацию без знания persistence. */
 interface LlmClient {
@@ -10,4 +11,7 @@ interface LlmClient {
 
     /** Генерирует JSON-ответ для итоговой оценки тренировки. */
     suspend fun generateStructuredJson(systemPrompt: String, messages: List<LlmMessage>): String
+
+    /** Потоково возвращает новые фрагменты текстового ответа для синхронной речи. */
+    fun generateStream(systemPrompt: String, messages: List<LlmMessage>): Flow<String>
 }

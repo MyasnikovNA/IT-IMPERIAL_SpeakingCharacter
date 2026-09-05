@@ -19,9 +19,11 @@ dependencies {
     implementation("io.ktor:ktor-server-cors-jvm:3.0.3")
     implementation("io.ktor:ktor-server-status-pages-jvm:3.0.3")
     implementation("io.ktor:ktor-server-call-logging-jvm:3.0.3")
+    implementation("io.ktor:ktor-server-websockets-jvm:3.0.3")
     implementation("io.ktor:ktor-serialization-kotlinx-json-jvm:3.0.3")
     implementation("io.ktor:ktor-client-cio-jvm:3.0.3")
     implementation("io.ktor:ktor-client-content-negotiation-jvm:3.0.3")
+    implementation("io.ktor:ktor-client-websockets-jvm:3.0.3")
     implementation("com.zaxxer:HikariCP:6.2.1")
     implementation("org.postgresql:postgresql:42.7.5")
     implementation("org.flywaydb:flyway-core:11.3.1")
@@ -29,6 +31,7 @@ dependencies {
     implementation("ch.qos.logback:logback-classic:1.5.16")
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
+    testImplementation("io.ktor:ktor-server-test-host-jvm:3.0.3")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
 
