@@ -30,6 +30,7 @@ import speakingcharacter.service.GeminiException
 import speakingcharacter.service.SimliException
 import speakingcharacter.service.SimliSessionTokenClient
 import speakingcharacter.service.StreamingTtsClient
+import speakingcharacter.service.SubtitleCueBuilder
 import speakingcharacter.service.SessionFinishedException
 import speakingcharacter.service.SessionNotFoundException
 
@@ -139,13 +140,20 @@ private fun WebSocketServerSession.launchStreamingTurn(
     tracker.mark("input_received")
     val textDeltas = Channel<String>(capacity = 1)
     var firstPcmReceived = false
+    var frameId = 0L
     val ttsJob = launch {
-        ttsClient.synthesize(textDeltas.receiveAsFlow()).collect { pcm ->
+        ttsClient.synthesize(textDeltas.receiveAsFlow()).collect { frame ->
+            if (frame.pcm.isEmpty()) return@collect
             if (!firstPcmReceived) {
                 firstPcmReceived = true
                 tracker.mark("tts_first_audio")
             }
-            outbound.send(Frame.Binary(fin = true, data = pcm))
+            val currentFrameId = frameId++
+            val cues = SubtitleCueBuilder.build(frame.alignment).map { cue ->
+                SubtitleCueEvent(cue.text, cue.startMs, cue.endMs)
+            }
+            outbound.sendEvent(ChatStreamEvent("audio_frame", turnId = turnId, frameId = currentFrameId, cues = cues))
+            outbound.send(Frame.Binary(fin = true, data = frame.pcm))
         }
     }
     suspend fun sendMetrics(outcome: String) {

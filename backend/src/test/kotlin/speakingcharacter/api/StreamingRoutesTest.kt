@@ -31,12 +31,14 @@ import speakingcharacter.service.LlmClient
 import speakingcharacter.service.PromptProvider
 import speakingcharacter.service.SimliSessionTokenClient
 import speakingcharacter.service.StreamingTtsClient
+import speakingcharacter.service.TtsAlignment
+import speakingcharacter.service.TtsAudioFrame
 
-/** Тестирует единственный successful turn: session, delta, PCM и done. */
+/** Тестирует единственный successful turn: session, delta, subtitle metadata, PCM и done. */
 class StreamingRoutesTest {
     /** Сохраняет стабильный порядок text и binary frames для браузерного Simli relay. */
     @Test
-    fun `stream websocket sends session delta PCM and done in order`() = testApplication {
+    fun `stream websocket sends subtitle metadata before matching PCM`() = testApplication {
         val config = testConfig()
         val conversationService = ConversationService(
             MemoryRepository(),
@@ -60,14 +62,18 @@ class StreamingRoutesTest {
 
             val session = incoming.receive() as Frame.Text
             val delta = incoming.receive() as Frame.Text
+            val audioFrame = incoming.receive() as Frame.Text
             val pcm = incoming.receive() as Frame.Binary
             val metrics = incoming.receive() as Frame.Text
             val done = incoming.receive() as Frame.Text
 
             assertEquals("session", eventType(session))
             assertEquals("delta", eventType(delta))
+            assertEquals("audio_frame", eventType(audioFrame))
             assertEquals("metrics", eventType(metrics))
             assertEquals("done", eventType(done))
+            assertEquals(true, audioFrame.readText().contains("\"frameId\":0"))
+            assertEquals(true, audioFrame.readText().contains("\"text\":\"Ответ\""))
             assertContentEquals("Ответ".encodeToByteArray(), pcm.data)
         }
     }
@@ -131,11 +137,22 @@ class StreamingRoutesTest {
         override fun generateStream(systemPrompt: String, messages: List<LlmMessage>): Flow<String> = flowOf("Ответ")
     }
 
-    /** Преобразует каждую дельту в PCM-байты для проверки relay без ElevenLabs. */
+    /** Преобразует каждую дельту в PCM и alignment для проверки subtitle relay без ElevenLabs. */
     private class EchoTtsClient : StreamingTtsClient {
-        /** Повторяет байты текста в качестве тестового PCM frame. */
-        override fun synthesize(textDeltas: Flow<String>): Flow<ByteArray> = kotlinx.coroutines.flow.flow {
-            textDeltas.collect { emit(it.encodeToByteArray()) }
+        /** Повторяет байты текста в качестве тестового PCM frame с искусственным alignment. */
+        override fun synthesize(textDeltas: Flow<String>): Flow<TtsAudioFrame> = kotlinx.coroutines.flow.flow {
+            textDeltas.collect { text ->
+                emit(
+                    TtsAudioFrame(
+                        pcm = text.encodeToByteArray(),
+                        alignment = TtsAlignment(
+                            chars = text.map(Char::toString),
+                            charStartTimesMs = text.indices.map { it.toLong() * 50 },
+                            charDurationsMs = List(text.length) { 50 },
+                        ),
+                    ),
+                )
+            }
         }
     }
 }

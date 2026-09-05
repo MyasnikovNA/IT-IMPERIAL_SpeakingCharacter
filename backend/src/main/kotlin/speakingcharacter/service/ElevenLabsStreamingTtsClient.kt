@@ -18,7 +18,9 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 import org.slf4j.LoggerFactory
 import speakingcharacter.config.AppConfig
 
@@ -36,12 +38,12 @@ class ElevenLabsStreamingTtsClient(
     private val logger = LoggerFactory.getLogger(ElevenLabsStreamingTtsClient::class.java)
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Запускает TTS-поток с требуемым PCM16 форматом и счётчиками использования. */
-    override fun synthesize(textDeltas: Flow<String>): Flow<ByteArray> = channelFlow {
+    /** Запускает TTS-поток с PCM16, alignment и счётчиками использования. */
+    override fun synthesize(textDeltas: Flow<String>): Flow<TtsAudioFrame> = channelFlow {
         val apiKey = requireNotNull(config.elevenLabsApiKey) { "ELEVENLABS_API_KEY is not configured" }
         val voiceId = requireNotNull(config.elevenLabsVoiceId) { "ELEVENLABS_VOICE_ID is not configured" }
         val url = "wss://api.elevenlabs.io/v1/text-to-speech/$voiceId/stream-input" +
-            "?model_id=${config.elevenLabsModel}&output_format=pcm_16000"
+            "?model_id=${config.elevenLabsModel}&output_format=pcm_16000&sync_alignment=true"
         var sentCharacters = 0
         var pcmBytes = 0L
         var firstAudioLogged = false
@@ -76,7 +78,7 @@ class ElevenLabsStreamingTtsClient(
                             logger.info("tts_first_audio durationMs={}", (System.nanoTime() - startedAt) / 1_000_000)
                         }
                         pcmBytes += payload.pcm.size
-                        this@channelFlow.send(payload.pcm)
+                        this@channelFlow.send(payload)
                     }
                     if (payload.isFinal) break
                 }
@@ -117,17 +119,26 @@ class ElevenLabsStreamingTtsClient(
         if (flush) put("flush", JsonPrimitive(true))
     }
 
-    /** Декодирует одно сообщение ElevenLabs, возвращая только PCM-данные и признак конца. */
+    /** Декодирует одно сообщение ElevenLabs, включая документированный character alignment. */
     internal fun parseAudio(rawMessage: String): TtsAudioFrame = try {
         val objectMessage = json.parseToJsonElement(rawMessage).jsonObject
         val encoded = (objectMessage["audio"] as? JsonPrimitive)?.contentOrNull
         val pcm = encoded?.let { Base64.getDecoder().decode(it) } ?: ByteArray(0)
-        val isFinal = (objectMessage["isFinal"] as? JsonPrimitive)?.booleanOrNull ?: false
-        TtsAudioFrame(pcm, isFinal)
+        val isFinal = (objectMessage["is_final"] as? JsonPrimitive)?.booleanOrNull
+            ?: (objectMessage["isFinal"] as? JsonPrimitive)?.booleanOrNull
+            ?: false
+        TtsAudioFrame(pcm, parseAlignment(objectMessage["alignment"] as? JsonObject), isFinal)
     } catch (_: Exception) {
         throw ElevenLabsException("ElevenLabs returned an invalid audio frame")
     }
-}
 
-/** Один декодированный PCM16 фрейм и служебный признак конца TTS-потока. */
-data class TtsAudioFrame(val pcm: ByteArray, val isFinal: Boolean)
+    /** Возвращает alignment только при полном и корректном наборе массивов от провайдера. */
+    private fun parseAlignment(rawAlignment: JsonObject?): TtsAlignment? {
+        val chars = rawAlignment?.get("chars")?.jsonArray?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: return null
+        val starts = rawAlignment["char_start_times_ms"]?.jsonArray?.mapNotNull { (it as? JsonPrimitive)?.longOrNull } ?: return null
+        val durations = rawAlignment["char_durations_ms"]?.jsonArray?.mapNotNull { (it as? JsonPrimitive)?.longOrNull } ?: return null
+        return TtsAlignment(chars, starts, durations).takeIf {
+            it.chars.isNotEmpty() && it.chars.size == it.charStartTimesMs.size && it.chars.size == it.charDurationsMs.size
+        }
+    }
+}

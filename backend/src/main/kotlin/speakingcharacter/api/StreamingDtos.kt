@@ -22,7 +22,13 @@ data class ChatStreamEvent(
     val turnId: String? = null,
     val outcome: String? = null,
     val metrics: Map<String, Long>? = null,
+    val frameId: Long? = null,
+    val cues: List<SubtitleCueEvent>? = null,
 )
+
+/** Один serializable subtitle cue, привязанный к началу соответствующего PCM-кадра. */
+@Serializable
+data class SubtitleCueEvent(val text: String, val startMs: Long, val endMs: Long)
 
 /** Метрики браузерного участка одного turn без transcript, аудио и иных чувствительных данных. */
 @Serializable

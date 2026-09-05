@@ -55,10 +55,35 @@ class StreamingSupportTest {
     fun `ElevenLabs frame relay decodes PCM bytes`() {
         val tts = ElevenLabsStreamingTtsClient(HttpClient(MockEngine { error("HTTP не должен вызываться") }), testConfig())
 
-        val frame = tts.parseAudio("""{"audio":"AAH//g==","isFinal":false}""")
+        val frame = tts.parseAudio(
+            """{"audio":"AAH//g==","is_final":false,"alignment":{"chars":["Д","а"," "],"char_start_times_ms":[0,90,180],"char_durations_ms":[90,90,30]}}""",
+        )
 
         assertContentEquals(byteArrayOf(0, 1, -1, -2), frame.pcm)
         assertEquals(false, frame.isFinal)
+        assertEquals(listOf("Д", "а", " "), frame.alignment?.chars)
+    }
+
+    /** Формирует короткие phrase-level cues без разрыва русских слов. */
+    @Test
+    fun `subtitle cue builder keeps Russian words intact`() {
+        val cues = SubtitleCueBuilder.build(
+            TtsAlignment(
+                chars = "Добрый день".map(Char::toString),
+                charStartTimesMs = listOf(0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500),
+                charDurationsMs = List(11) { 50 },
+            ),
+        )
+
+        assertEquals(listOf(SubtitleCue("Добрый день", 0, 550)), cues)
+    }
+
+    /** Не создаёт cue для повреждённого alignment, не блокируя аудиорелей. */
+    @Test
+    fun `subtitle cue builder ignores inconsistent alignment`() {
+        val cues = SubtitleCueBuilder.build(TtsAlignment(listOf("А"), emptyList(), emptyList()))
+
+        assertEquals(emptyList(), cues)
     }
 
     /** Создаёт минимальную конфигурацию для изолированных streaming-тестов. */
