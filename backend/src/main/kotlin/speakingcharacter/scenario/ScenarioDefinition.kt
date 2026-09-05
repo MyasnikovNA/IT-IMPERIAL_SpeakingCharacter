@@ -1,7 +1,10 @@
 /** Описывает неизменяемые модели встроенного сценария корпоративной тренировки. */
 package speakingcharacter.scenario
 
+import kotlinx.serialization.Serializable
+
 /** Полное описание сценария, безопасно загруженного из Markdown-ресурса. */
+@Serializable
 data class ScenarioDefinition(
     val id: String,
     val version: Int,
@@ -12,6 +15,7 @@ data class ScenarioDefinition(
 )
 
 /** Один последовательный этап, через который аватар проводит участника. */
+@Serializable
 data class ScenarioStage(
     val id: String,
     val goal: String,

@@ -6,6 +6,10 @@ import speakingcharacter.db.ChatRepository
 import speakingcharacter.model.ChatMessage
 import speakingcharacter.model.ChatRole
 import speakingcharacter.model.SessionStatus
+import speakingcharacter.scenario.ScenarioCatalog
+import speakingcharacter.scenario.ScenarioResolver
+import speakingcharacter.scenario.ScenarioSelection
+import speakingcharacter.scenario.ScenarioSelectionException
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
@@ -21,15 +25,17 @@ class ConversationService(
     private val contextBuilder: ConversationContextBuilder,
     private val promptProvider: PromptProvider,
     private val llmClient: LlmClient,
+    private val scenarioResolver: ScenarioResolver = ScenarioResolver(ScenarioCatalog()),
 ) {
     private val logger = LoggerFactory.getLogger(ConversationService::class.java)
 
     /** Сохраняет user turn, генерирует assistant turn и возвращает ответ активной сессии. */
-    suspend fun reply(requestedSessionId: UUID?, userMessage: String): ConversationResult {
-        val session = withContext(Dispatchers.IO) {
-            requestedSessionId?.let { chatRepository.findSession(it) ?: throw SessionNotFoundException() }
-                ?: chatRepository.createSession("demo")
-        }
+    suspend fun reply(
+        requestedSessionId: UUID?,
+        userMessage: String,
+        scenarioSelection: ScenarioSelection? = null,
+    ): ConversationResult {
+        val session = resolveSession(requestedSessionId, scenarioSelection)
         if (session.status == SessionStatus.FINISHED) throw SessionFinishedException()
 
         withContext(Dispatchers.IO) { chatRepository.addMessage(session.id, ChatRole.USER, userMessage) }
@@ -41,7 +47,7 @@ class ConversationService(
         logger.info("Chat Gemini request started for sessionId={}", session.id)
         var assistantMessage: String? = null
         val duration = try {
-            measureTime { assistantMessage = llmClient.generate(promptProvider.getSystemPrompt(), context) }
+            measureTime { assistantMessage = llmClient.generate(promptProvider.getSystemPrompt(session.scenarioSnapshot), context) }
         } catch (exception: GeminiException) {
             logger.error("Chat Gemini request failed for sessionId={}: {}", session.id, exception.message)
             throw exception
@@ -63,13 +69,11 @@ class ConversationService(
     suspend fun replyStream(
         requestedSessionId: UUID?,
         userMessage: String,
+        scenarioSelection: ScenarioSelection? = null,
         onDelta: suspend (String) -> Unit,
         onSession: suspend (UUID) -> Unit = {},
     ): ConversationResult {
-        val session = withContext(Dispatchers.IO) {
-            requestedSessionId?.let { chatRepository.findSession(it) ?: throw SessionNotFoundException() }
-                ?: chatRepository.createSession("demo")
-        }
+        val session = resolveSession(requestedSessionId, scenarioSelection)
         if (session.status == SessionStatus.FINISHED) throw SessionFinishedException()
         onSession(session.id)
 
@@ -84,7 +88,7 @@ class ConversationService(
         var firstDeltaLogged = false
         logger.info("Chat Gemini stream started for sessionId={}", session.id)
         try {
-            llmClient.generateStream(promptProvider.getSystemPrompt(), context).collect { delta ->
+            llmClient.generateStream(promptProvider.getSystemPrompt(session.scenarioSnapshot), context).collect { delta ->
                 if (!firstDeltaLogged) {
                     firstDeltaLogged = true
                     logger.info("gemini_first_delta sessionId={} durationMs={}", session.id, (System.nanoTime() - startedAt) / 1_000_000)
@@ -116,5 +120,19 @@ class ConversationService(
     suspend fun history(sessionId: UUID): List<ChatMessage> = withContext(Dispatchers.IO) {
         if (chatRepository.findSession(sessionId) == null) throw SessionNotFoundException()
         chatRepository.history(sessionId)
+    }
+
+    /** Находит прежнюю сессию либо создаёт новую только после успешного разрешения сценария. */
+    private suspend fun resolveSession(
+        requestedSessionId: UUID?,
+        scenarioSelection: ScenarioSelection?,
+    ) = if (requestedSessionId != null) {
+        if (scenarioSelection != null) {
+            throw ScenarioSelectionException("Нельзя изменить сценарий существующей тренировки")
+        }
+        withContext(Dispatchers.IO) { chatRepository.findSession(requestedSessionId) ?: throw SessionNotFoundException() }
+    } else {
+        val scenarioSnapshot = scenarioResolver.resolve(scenarioSelection)
+        withContext(Dispatchers.IO) { chatRepository.createSession(scenarioSnapshot) }
     }
 }

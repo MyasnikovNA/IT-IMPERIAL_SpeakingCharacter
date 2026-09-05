@@ -2,12 +2,17 @@
 package speakingcharacter.api
 
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.ContentType
+import io.ktor.http.content.TextContent
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -45,4 +50,33 @@ class ScenarioRoutesTest {
         )
         assertFalse(responseBody.contains("instructions"))
     }
+
+    /** Проверяет Markdown до старта тренировки, но не добавляет его в preset-каталог. */
+    @Test
+    fun `validate endpoint accepts valid uploaded scenario`() = testApplication {
+        application {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            registerScenarioRoutes(ScenarioCatalog())
+        }
+
+        val response = client.post("/api/scenarios/validate") {
+            setBody(
+                TextContent(
+                    Json.encodeToString(ScenarioValidationRequest(customScenarioMarkdown())),
+                    ContentType.Application.Json,
+                ),
+            )
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("custom-training", Json.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("id").jsonPrimitive.content)
+    }
+
+    /** Создаёт минимальный допустимый Markdown custom-сценария. */
+    private fun customScenarioMarkdown(): String = """
+        <!-- scenario-meta
+        {"id":"custom-training","version":1,"title":"Пользовательская тренировка","criteria":["Понятность ответа"],"stages":[{"id":"start","goal":"Начать разговор","exitRule":"continue"},{"id":"finish","goal":"Подвести итог","exitRule":"complete"}]}
+        -->
+        Проведи короткую тренировку и помоги сотруднику сформулировать уверенный ответ.
+    """.trimIndent()
 }

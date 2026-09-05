@@ -10,6 +10,7 @@ data class ChatStreamRequest(
     val sessionId: String? = null,
     val message: String? = null,
     val turnId: String? = null,
+    val scenario: ScenarioSelectionRequest? = null,
 )
 
 /** Служебный text-кадр backend: session, delta, metrics, done либо error. */

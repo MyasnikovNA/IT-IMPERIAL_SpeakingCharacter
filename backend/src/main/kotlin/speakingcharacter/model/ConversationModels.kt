@@ -3,6 +3,7 @@ package speakingcharacter.model
 
 import java.time.Instant
 import java.util.UUID
+import speakingcharacter.scenario.ScenarioSnapshot
 
 /** Роли сообщений, сохраняемые в истории диалога. */
 enum class ChatRole { USER, ASSISTANT }
@@ -19,6 +20,7 @@ data class TrainingSession(
     val status: SessionStatus,
     val scenarioId: String?,
     val finishedAt: Instant?,
+    val scenarioSnapshot: ScenarioSnapshot? = null,
 )
 
 /** Сообщение с ролью в формате Gemini, подготовленное до вызова inference. */

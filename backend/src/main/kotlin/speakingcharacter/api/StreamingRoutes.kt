@@ -183,6 +183,7 @@ private fun WebSocketServerSession.launchStreamingTurn(
             val result = conversationService.replyStream(
                 start.sessionId?.let(UUID::fromString),
                 requireNotNull(start.message).trim(),
+                scenarioSelection = start.scenario?.toDomainSelection(),
                 onDelta = { delta ->
                     tracker.mark("gemini_first_delta")
                     outbound.sendEvent(ChatStreamEvent("delta", delta = delta, turnId = turnId))
@@ -209,6 +210,9 @@ private fun WebSocketServerSession.launchStreamingTurn(
         } catch (_: SessionFinishedException) {
             sendMetrics("finished")
             outbound.sendEvent(ChatStreamEvent("error", error = "training session is already finished", turnId = turnId))
+        } catch (exception: speakingcharacter.scenario.ScenarioSelectionException) {
+            sendMetrics("invalid_scenario")
+            outbound.sendEvent(ChatStreamEvent("error", error = exception.message ?: "invalid scenario", turnId = turnId))
         } catch (exception: GeminiException) {
             sendMetrics("gemini_failed")
             outbound.sendEvent(ChatStreamEvent("error", error = exception.message ?: "Gemini stream failed", turnId = turnId))

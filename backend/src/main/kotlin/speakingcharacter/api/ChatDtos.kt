@@ -5,7 +5,11 @@ import kotlinx.serialization.Serializable
 
 /** Входящая реплика из браузера: отсутствие сессии начинает новый диалог. */
 @Serializable
-data class ChatRequest(val sessionId: String? = null, val message: String)
+data class ChatRequest(
+    val sessionId: String? = null,
+    val message: String,
+    val scenario: ScenarioSelectionRequest? = null,
+)
 
 /** Завершённый ход LLM, возвращаемый frontend для озвучивания в D-ID. */
 @Serializable

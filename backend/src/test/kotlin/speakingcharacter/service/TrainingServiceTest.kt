@@ -16,6 +16,7 @@ import speakingcharacter.model.LlmMessage
 import speakingcharacter.model.SessionStatus
 import speakingcharacter.model.TrainingReport
 import speakingcharacter.model.TrainingSession
+import speakingcharacter.scenario.ScenarioSnapshot
 import java.time.Instant
 import java.util.UUID
 
@@ -53,8 +54,14 @@ class TrainingServiceTest {
         private val messages = mutableMapOf<UUID, MutableList<ChatMessage>>()
 
         /** Создаёт активную сессию в памяти. */
-        override fun createSession(scenarioId: String): TrainingSession {
-            val session = TrainingSession(UUID.randomUUID(), SessionStatus.ACTIVE, scenarioId, null)
+        override fun createSession(scenarioSnapshot: ScenarioSnapshot?): TrainingSession {
+            val session = TrainingSession(
+                UUID.randomUUID(),
+                SessionStatus.ACTIVE,
+                scenarioSnapshot?.definition?.id,
+                null,
+                scenarioSnapshot,
+            )
             sessions[session.id] = session
             messages[session.id] = mutableListOf()
             return session
@@ -79,13 +86,13 @@ class TrainingServiceTest {
 
         /** Создаёт единственную завершённую session для проверки запрета reply. */
         fun createFinishedSession() {
-            val session = createSession("demo")
+            val session = createSession(null)
             sessions[session.id] = session.copy(status = SessionStatus.FINISHED, finishedAt = Instant.now())
         }
 
         /** Создаёт активную session с минимальным transcript для evaluation. */
         fun createActiveSessionWithMessage() {
-            val session = createSession("demo")
+            val session = createSession(null)
             addMessage(session.id, ChatRole.USER, "Меня зовут Тарас")
         }
 
