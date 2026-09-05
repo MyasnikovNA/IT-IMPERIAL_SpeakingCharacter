@@ -101,8 +101,7 @@ Content-Type: application/json
 {
   "sessionId": null,
   "message": "Здравствуйте",
-  "scenario": "optional",
-  "criteria": "optional"
+  "scenario": { "presetId": "sales-discovery" }
 }
 ```
 
@@ -118,9 +117,13 @@ Content-Type: application/json
 
 Также:
 
+- `GET /api/scenarios` возвращает пять безопасных карточек встроенных тренировок;
+- `POST /api/scenarios/validate` принимает `{ "markdown": "..." }` и проверяет одноразовый сценарий до старта;
 - `GET /api/chat/{sessionId}/history`
 - `POST /api/chat/{sessionId}/finish`
 - `GET /api/chat/{sessionId}/report`
+
+Сценарий необязателен и допускается только при создании сессии. Можно передать ровно одно поле: `presetId` или Markdown в `scenario.markdown`. Backend валидирует Markdown до сохранения реплики и закрепляет нормализованный snapshot в сессии: последующие HTTP/WS turn не могут изменить сценарий.
 
 ### Simli streaming
 
