@@ -2,11 +2,11 @@ package ru.itimperial.speakingcharacter.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import ru.itimperial.speakingcharacter.scenario.ScenarioSelection
 
 @Serializable
 data class CreateSessionRequest(
-    val scenario: String? = null,
-    val criteria: String? = null,
+    val scenario: ScenarioSelectionRequest? = null,
 )
 
 @Serializable
@@ -37,8 +37,7 @@ data class ErrorResponse(
 data class ChatRequest(
     val sessionId: String? = null,
     val message: String,
-    val scenario: String? = null,
-    val criteria: String? = null,
+    val scenario: ScenarioSelectionRequest? = null,
 )
 
 @Serializable
@@ -82,7 +81,33 @@ data class ChatStreamRequest(
     val message: String? = null,
     val turnId: String? = null,
     val generationId: Long? = null,
+    val scenario: ScenarioSelectionRequest? = null,
 )
+
+/** Представляет взаимоисключающий выбор preset либо одноразового Markdown-сценария. */
+@Serializable
+data class ScenarioSelectionRequest(val presetId: String? = null, val markdown: String? = null) {
+    /** Преобразует transport-форму в независимую domain-модель. */
+    fun toDomain(): ScenarioSelection = ScenarioSelection(presetId, markdown)
+}
+
+/** Возвращает безопасную карточку сценария без закрытых LLM-инструкций. */
+@Serializable
+data class ScenarioSummaryDto(
+    val id: String,
+    val version: Int,
+    val title: String,
+    val criteria: List<String>,
+    val stages: List<ScenarioStageDto>,
+)
+
+/** Описывает один отображаемый этап сценария. */
+@Serializable
+data class ScenarioStageDto(val id: String, val goal: String)
+
+/** Принимает Markdown для проверки без создания или сохранения сессии. */
+@Serializable
+data class ScenarioValidationRequest(val markdown: String)
 
 @Serializable
 data class ChatStreamEvent(

@@ -78,7 +78,7 @@ fun Application.configureRoutes() {
                 } else {
                     json.decodeFromString<CreateSessionRequest>(rawBody)
                 }
-                val session = manager.createSession(request.scenario, request.criteria)
+                val session = manager.createSession(request.scenario?.toDomain())
                 val scheme = if (call.request.local.scheme == "https") "wss" else "ws"
                 val host = call.request.local.serverHost
                 val port = call.request.local.serverPort
@@ -204,6 +204,7 @@ fun Application.configureRoutes() {
     configureChatCompatibilityRoutes()
     configureSimliRoutes()
     configureMonitoringRoutes()
+    configureScenarioRoutes()
 }
 
 private suspend fun io.ktor.server.websocket.DefaultWebSocketServerSession.sendSerialized(

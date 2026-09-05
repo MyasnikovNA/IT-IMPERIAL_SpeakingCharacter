@@ -21,6 +21,9 @@ import ru.itimperial.speakingcharacter.model.TrainingMessage
 import ru.itimperial.speakingcharacter.model.TrainingMetric
 import ru.itimperial.speakingcharacter.model.TrainingSession
 import ru.itimperial.speakingcharacter.repository.TrainingRepository
+import ru.itimperial.speakingcharacter.scenario.ScenarioPromptProvider
+import ru.itimperial.speakingcharacter.scenario.ScenarioResolver
+import ru.itimperial.speakingcharacter.scenario.ScenarioSelection
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -32,22 +35,21 @@ class TrainingSessionManager(
     private val llmClient: LlmClient,
     private val reportService: ReportService,
     private val appConfig: AppConfig,
+    private val scenarioResolver: ScenarioResolver,
+    private val scenarioPromptProvider: ScenarioPromptProvider,
     coroutineContext: CoroutineContext,
 ) {
     private val scope = CoroutineScope(coroutineContext + SupervisorJob())
     private val runtimes = ConcurrentHashMap<String, SessionRuntime>()
 
-    suspend fun createSession(
-        scenario: String? = null,
-        criteria: String? = null,
-    ): TrainingSession {
+    /** Создаёт тренировку и необратимо закрепляет выбранный сценарий до первого turn. */
+    suspend fun createSession(selection: ScenarioSelection? = null): TrainingSession {
         val now = Instant.now().toString()
         val session = TrainingSession(
             id = UUID.randomUUID().toString(),
             createdAt = now,
             updatedAt = now,
-            scenario = scenario?.trim()?.takeIf { it.isNotEmpty() },
-            criteria = criteria?.trim()?.takeIf { it.isNotEmpty() },
+            scenarioSnapshot = scenarioResolver.resolve(selection),
         )
         repository.create(session)
         runtimeFor(session)
@@ -221,13 +223,7 @@ class TrainingSessionManager(
 
         try {
             val session = repository.get(sessionId) ?: throw SessionNotFoundException(sessionId)
-            val systemPrompt = buildString {
-                append(appConfig.trainingSystemPrompt)
-                session.scenario?.let {
-                    append("\n\nСценарий тренировки, которому нужно следовать:\n")
-                    append(it)
-                }
-            }
+            val systemPrompt = scenarioPromptProvider.compose(appConfig.trainingSystemPrompt, session.scenarioSnapshot)
             val context = session.messages.takeLast(appConfig.maxContextMessages)
             llmClient.streamReply(context, systemPrompt).collect { delta ->
                 if (runtime.currentGenerationId.get() != generationId) return@collect

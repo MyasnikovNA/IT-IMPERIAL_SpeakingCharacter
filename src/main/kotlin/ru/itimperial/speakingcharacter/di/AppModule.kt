@@ -19,6 +19,9 @@ import ru.itimperial.speakingcharacter.service.ReportService
 import ru.itimperial.speakingcharacter.service.SimliSessionTokenClient
 import ru.itimperial.speakingcharacter.service.StreamingTtsClient
 import ru.itimperial.speakingcharacter.service.TrainingSessionManager
+import ru.itimperial.speakingcharacter.scenario.ScenarioCatalog
+import ru.itimperial.speakingcharacter.scenario.ScenarioPromptProvider
+import ru.itimperial.speakingcharacter.scenario.ScenarioResolver
 import javax.sql.DataSource
 
 fun appModule(config: AppConfig) = module {
@@ -56,6 +59,9 @@ fun appModule(config: AppConfig) = module {
     }
     single<StreamingTtsClient> { ElevenLabsStreamingTtsClient(get(), get()) }
     single { SimliSessionTokenClient(get(), get()) }
+    single(createdAtStart = true) { ScenarioCatalog() }
+    single { ScenarioResolver(get()) }
+    single { ScenarioPromptProvider() }
     single { ReportService(get(), get(), get()) }
     single {
         TrainingSessionManager(
@@ -63,6 +69,8 @@ fun appModule(config: AppConfig) = module {
             llmClient = get(),
             reportService = get(),
             appConfig = get(),
+            scenarioResolver = get(),
+            scenarioPromptProvider = get(),
             coroutineContext = Dispatchers.IO,
         )
     }

@@ -2,6 +2,7 @@ package ru.itimperial.speakingcharacter.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import ru.itimperial.speakingcharacter.scenario.ScenarioSnapshot
 
 @Serializable
 enum class SessionStatus {
@@ -56,7 +57,8 @@ data class TrainingSession(
     val createdAt: String,
     val updatedAt: String,
     val status: SessionStatus = SessionStatus.ACTIVE,
-    val scenario: String? = null,
+    val scenarioSnapshot: ScenarioSnapshot? = null,
+    /** Временно сохраняет legacy criteria до переноса строгого отчёта. */
     val criteria: String? = null,
     val latestGenerationId: Long = -1,
     val messages: List<TrainingMessage> = emptyList(),

@@ -89,8 +89,12 @@ private suspend fun WebSocketServerSession.handleSimliTurn(
     tracker.mark("input_received")
 
     val session = if (start.sessionId == null) {
-        manager.createSession()
+        manager.createSession(start.scenario?.toDomain())
     } else {
+        if (start.scenario != null) {
+            sendEvent(ChatStreamEvent("error", error = "scenario can only be selected for a new session", turnId = turnId))
+            return
+        }
         val existing = manager.getSession(start.sessionId)
         if (existing == null) {
             sendEvent(ChatStreamEvent("error", error = "chat session not found", turnId = turnId))

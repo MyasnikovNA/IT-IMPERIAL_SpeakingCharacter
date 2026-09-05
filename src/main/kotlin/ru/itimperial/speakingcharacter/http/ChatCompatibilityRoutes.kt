@@ -46,8 +46,12 @@ fun Application.configureChatCompatibilityRoutes() {
                 }
 
                 val session = if (request.sessionId == null) {
-                    manager.createSession(request.scenario, request.criteria)
+                    manager.createSession(request.scenario?.toDomain())
                 } else {
+                    if (request.scenario != null) {
+                        call.respond(HttpStatusCode.BadRequest, ErrorResponse("scenario can only be selected for a new session"))
+                        return@post
+                    }
                     if (!isUuid(request.sessionId)) {
                         call.respond(HttpStatusCode.BadRequest, ErrorResponse("sessionId must be a UUID"))
                         return@post
