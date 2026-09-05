@@ -1,0 +1,16 @@
+.env
+.env.*
+.git
+.gradle
+build
+backend/.gradle
+backend/.kotlin
+backend/build
+.idea
+.vscode
+__pycache__
+.venv
+venv
+.venv-python39-backup
+data
+*.log
