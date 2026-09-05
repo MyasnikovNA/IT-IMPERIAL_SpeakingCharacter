@@ -35,6 +35,7 @@ import speakingcharacter.service.SimliSessionTokenClient
 import speakingcharacter.service.StreamingTtsClient
 import speakingcharacter.service.TtsAlignment
 import speakingcharacter.service.TtsAudioFrame
+import speakingcharacter.scenario.ScenarioSnapshot
 
 /** Тестирует единственный successful turn: session, delta, subtitle metadata, PCM и done. */
 class StreamingRoutesTest {
@@ -167,8 +168,8 @@ class StreamingRoutesTest {
         private val messages = mutableMapOf<UUID, MutableList<ChatMessage>>()
 
         /** Создаёт активную session. */
-        override fun createSession(scenarioId: String): TrainingSession = TrainingSession(
-            UUID.randomUUID(), SessionStatus.ACTIVE, scenarioId, null,
+        override fun createSession(scenarioSnapshot: ScenarioSnapshot?): TrainingSession = TrainingSession(
+            UUID.randomUUID(), SessionStatus.ACTIVE, scenarioSnapshot?.definition?.id, null, scenarioSnapshot,
         ).also { session -> sessions[session.id] = session; messages[session.id] = mutableListOf() }
 
         /** Находит session. */

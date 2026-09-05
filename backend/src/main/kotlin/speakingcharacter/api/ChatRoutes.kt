@@ -18,6 +18,7 @@ import speakingcharacter.service.EvaluationService
 import speakingcharacter.service.GeminiException
 import speakingcharacter.service.SessionFinishedException
 import speakingcharacter.service.SessionNotFoundException
+import speakingcharacter.scenario.ScenarioSelectionException
 import java.util.UUID
 import org.slf4j.LoggerFactory
 
@@ -37,7 +38,7 @@ fun Application.registerChatRoutes(conversationService: ConversationService, eva
                 }
                 val sessionId = request.sessionId?.let { call.parseSessionId(it) }
                 if (request.sessionId != null && sessionId == null) return@post
-                val result = call.executeReply(conversationService, sessionId, message) ?: return@post
+                val result = call.executeReply(conversationService, sessionId, message, request.scenario?.toDomainSelection()) ?: return@post
                 call.respond(ChatResponse(result.sessionId.toString(), result.assistantMessage))
             }
             post("/{sessionId}/finish") {
@@ -78,16 +79,20 @@ private suspend fun ApplicationCall.executeReply(
     service: ConversationService,
     sessionId: UUID?,
     message: String,
+    scenarioSelection: speakingcharacter.scenario.ScenarioSelection?,
 ): ConversationResult? {
     /** Измеряет полный server-side latency POST /api/chat без записи текста сообщения. */
     val startedAt = System.nanoTime()
     return try {
-        service.reply(sessionId, message)
+        service.reply(sessionId, message, scenarioSelection)
     } catch (_: SessionNotFoundException) {
         respond(HttpStatusCode.NotFound, ErrorResponse("chat session not found"))
         null
     } catch (_: SessionFinishedException) {
         respond(HttpStatusCode.Conflict, ErrorResponse("training session is already finished"))
+        null
+    } catch (exception: ScenarioSelectionException) {
+        respond(HttpStatusCode.BadRequest, ErrorResponse(exception.message ?: "invalid scenario"))
         null
     } catch (exception: GeminiException) {
         respond(HttpStatusCode.BadGateway, ErrorResponse(exception.message ?: "Gemini request failed"))

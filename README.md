@@ -45,6 +45,8 @@ browser ── WS start ──> Kotlin ── Gemini SSE ──> text delta
 
 Перед подключением frontend вызывает `POST /api/avatar/simli/session`. Backend запрашивает у Simli короткоживущий token с лимитами `SIMLI_MAX_SESSION_SECONDS` и `SIMLI_MAX_IDLE_SECONDS`, а браузеру отдаёт только `{ token, transport }`.
 
+План следующей ветки с пятью корпоративными тренировками, состоянием сценария и синхронизацией субтитров находится в [docs/training-scenarios-plan.md](docs/training-scenarios-plan.md).
+
 ## LLM architecture
 
 `ConversationService` координирует обычный и потоковый ход тренировки.
@@ -63,10 +65,34 @@ Assistant message сохраняется в PostgreSQL только после �
 ## API
 
 - `GET /health` → `{ "status": "ok" }`
+- `GET /api/scenarios` — пять доступных сценариев для экрана выбора. В ответ не включаются внутренние инструкции агенту.
+- `POST /api/scenarios/validate` — проверяет загруженный Markdown-сценарий и возвращает его безопасную карточку, ничего не сохраняя.
 - `POST /api/chat` с `{ "sessionId": "UUID or null", "message": "..." }`
 - `GET /api/chat/{sessionId}/history` — хронологическая отладочная история
 
 `MAX_CONTEXT_MESSAGES` ограничивает число последних сообщений `USER`/`ASSISTANT`, передаваемых Gemini. Реплика пользователя сохраняется до построения этого окна, поэтому в запрос к LLM она попадает ровно один раз.
+
+### Выбор сценария новой тренировки
+
+При первом запросе сценарий необязателен. Его отсутствие оставляет свободный диалог с текущим `demo_system_prompt.txt`. Для preset укажите `scenario.presetId`; для одноразового Markdown-файла — `scenario.markdown`. Backend валидирует файл, сохраняет нормализованный snapshot сессии и отвергает попытку заменить сценарий в следующих репликах.
+
+```json
+{
+  "sessionId": null,
+  "message": "Начнём тренировку",
+  "scenario": { "presetId": "sales-discovery" }
+}
+```
+
+Проверка файла без запуска диалога:
+
+```bash
+curl -X POST http://localhost:8080/api/scenarios/validate \
+  -H "Content-Type: application/json" \
+  --data-binary @custom-scenario-request.json
+```
+
+`custom-scenario-request.json` содержит `{ "markdown": "..." }`; лимит исходного Markdown — 32 КБ. Загруженный файл не добавляется в общий каталог и существует только в snapshot созданной сессии.
 
 ### Пример запроса чата
 

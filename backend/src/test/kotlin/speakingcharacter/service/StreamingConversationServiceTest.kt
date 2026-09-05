@@ -11,12 +11,17 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertContains
 import speakingcharacter.db.ChatRepository
 import speakingcharacter.model.ChatMessage
 import speakingcharacter.model.ChatRole
 import speakingcharacter.model.LlmMessage
 import speakingcharacter.model.SessionStatus
 import speakingcharacter.model.TrainingSession
+import speakingcharacter.scenario.ScenarioSnapshot
+import speakingcharacter.scenario.ScenarioSelection
+import speakingcharacter.scenario.ScenarioSelectionException
+import speakingcharacter.scenario.ScenarioSource
 
 /** Тестирует сохранение assistant только после успешного завершения stream. */
 class StreamingConversationServiceTest {
@@ -66,6 +71,32 @@ class StreamingConversationServiceTest {
         assertEquals(listOf("Здравствуйте"), repository.history(requireNotNull(sessionId)).map(ChatMessage::content))
     }
 
+    /** Закрепляет custom snapshot при первом ходе и не позволяет заменить его при продолжении. */
+    @Test
+    fun `stream reply persists scenario snapshot and rejects scenario replacement`() = runTest {
+        val repository = MemoryChatRepository()
+        val llmClient = StreamLlmClient(flowOf("Ответ"))
+        val service = ConversationService(repository, ConversationContextBuilder(20), PromptProvider(), llmClient)
+
+        val result = service.replyStream(
+            requestedSessionId = null,
+            userMessage = "Здравствуйте",
+            scenarioSelection = ScenarioSelection(markdown = customScenarioMarkdown()),
+            onDelta = { },
+        )
+
+        assertEquals(ScenarioSource.UPLOADED, repository.findSession(result.sessionId)?.scenarioSnapshot?.source)
+        assertContains(requireNotNull(llmClient.lastSystemPrompt), "Пользовательская тренировка")
+        assertFailsWith<ScenarioSelectionException> {
+            service.replyStream(
+                requestedSessionId = result.sessionId,
+                userMessage = "Ещё реплика",
+                scenarioSelection = ScenarioSelection(presetId = "sales-discovery"),
+                onDelta = { },
+            )
+        }
+    }
+
     /** Собирает service с заданным искусственным Gemini stream. */
     private fun service(repository: MemoryChatRepository, stream: Flow<String>): ConversationService =
         ConversationService(repository, ConversationContextBuilder(20), PromptProvider(), StreamLlmClient(stream))
@@ -76,8 +107,8 @@ class StreamingConversationServiceTest {
         private val messages = mutableMapOf<UUID, MutableList<ChatMessage>>()
 
         /** Создаёт active session. */
-        override fun createSession(scenarioId: String): TrainingSession = TrainingSession(
-            UUID.randomUUID(), SessionStatus.ACTIVE, scenarioId, null,
+        override fun createSession(scenarioSnapshot: ScenarioSnapshot?): TrainingSession = TrainingSession(
+            UUID.randomUUID(), SessionStatus.ACTIVE, scenarioSnapshot?.definition?.id, null, scenarioSnapshot,
         ).also { session -> sessions[session.id] = session; messages[session.id] = mutableListOf() }
 
         /** Находит session. */
@@ -100,6 +131,8 @@ class StreamingConversationServiceTest {
 
     /** Возвращает заданный Flow без реальных Gemini HTTP-вызовов. */
     private class StreamLlmClient(private val stream: Flow<String>) : LlmClient {
+        var lastSystemPrompt: String? = null
+
         /** Не используется в streaming-тесте. */
         override suspend fun generate(systemPrompt: String, messages: List<LlmMessage>): String = error("Не используется")
 
@@ -107,6 +140,17 @@ class StreamingConversationServiceTest {
         override suspend fun generateStructuredJson(systemPrompt: String, messages: List<LlmMessage>): String = error("Не используется")
 
         /** Возвращает зафиксированный test stream. */
-        override fun generateStream(systemPrompt: String, messages: List<LlmMessage>): Flow<String> = stream
+        override fun generateStream(systemPrompt: String, messages: List<LlmMessage>): Flow<String> {
+            lastSystemPrompt = systemPrompt
+            return stream
+        }
     }
+
+    /** Создаёт минимальный допустимый Markdown custom-сценария. */
+    private fun customScenarioMarkdown(): String = """
+        <!-- scenario-meta
+        {"id":"custom-training","version":1,"title":"Пользовательская тренировка","criteria":["Понятность ответа"],"stages":[{"id":"start","goal":"Начать разговор","exitRule":"continue"},{"id":"finish","goal":"Подвести итог","exitRule":"complete"}]}
+        -->
+        Проведи короткую тренировку и помоги сотруднику сформулировать уверенный ответ.
+    """.trimIndent()
 }

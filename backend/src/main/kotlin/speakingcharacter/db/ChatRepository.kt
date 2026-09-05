@@ -4,12 +4,13 @@ package speakingcharacter.db
 import speakingcharacter.model.ChatMessage
 import speakingcharacter.model.ChatRole
 import speakingcharacter.model.TrainingSession
+import speakingcharacter.scenario.ScenarioSnapshot
 import java.util.UUID
 
 /** Минимальный контракт persistence для orchestration сервисов и unit-тестов. */
 interface ChatRepository {
-    /** Создаёт новую активную сессию указанного сценария. */
-    fun createSession(scenarioId: String): TrainingSession
+    /** Создаёт новую активную сессию с закреплённым snapshot сценария либо без него. */
+    fun createSession(scenarioSnapshot: ScenarioSnapshot?): TrainingSession
 
     /** Возвращает сессию или null, если её нет. */
     fun findSession(sessionId: UUID): TrainingSession?
