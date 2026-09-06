@@ -254,8 +254,11 @@ async function connect() {
 
 
         const managerStartedAt = performance.now();
+        const did =
+            await import("https://cdn.jsdelivr.net/npm/@d-id/client-sdk/+esm");
+
         agentManager =
-            await window.DID.createAgentManager(
+            await did.createAgentManager(
 
                 config.agent_id,
 
@@ -338,12 +341,17 @@ async function connectSimli(config, connectStartedAt) {
         throw new Error(payload.error || "Не удалось открыть сессию Simli");
     }
 
-    simliClient = new window.Simli.SimliClient(
+    const simliModule =
+        await import("/vendor/simli-client.js");
+    const { LogLevel, SimliClient } =
+        simliModule.default;
+
+    simliClient = new SimliClient(
         payload.token,
         video,
         audio,
         null,
-        window.Simli.LogLevel.INFO,
+        LogLevel.INFO,
         payload.transport
     );
     simliClient.on("start", () => {

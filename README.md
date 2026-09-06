@@ -237,6 +237,18 @@ docker compose up --build
 
 Compose поднимает PostgreSQL и backend на `localhost:8080`.
 
+### Локальный frontend
+
+Simli SDK собирается локально из закреплённой npm-зависимости, поэтому запуск не зависит от внешнего CDN. Перед первым запуском frontend:
+
+```bash
+npm ci
+npm run build:frontend
+uv run --with-requirements requirements.txt uvicorn app:app --port 8000
+```
+
+Откройте `http://localhost:8000`. Секреты остаются только в `.env` и Kotlin backend.
+
 ### Локально
 
 Нужна JDK 17:

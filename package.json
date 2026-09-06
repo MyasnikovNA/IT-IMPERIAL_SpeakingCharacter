@@ -1,0 +1,14 @@
+{
+  "name": "speaking-character-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:frontend": "esbuild node_modules/simli-client/dist/index.js --bundle --format=esm --platform=browser --outfile=static/vendor/simli-client.js"
+  },
+  "dependencies": {
+    "simli-client": "3.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0"
+  }
+}

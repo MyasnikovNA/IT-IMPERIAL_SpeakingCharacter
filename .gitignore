@@ -20,6 +20,9 @@ venv/
 htmlcov/
 .mypy_cache/
 
+node_modules/
+static/vendor/
+
 backend/.gradle/
 backend/.kotlin/
 backend/build/
