@@ -17,7 +17,7 @@
 
 ## Архитектура
 
-Root Kotlin/Ktor backend на порту `8080` — единственный runtime для сессий, LLM, сценариев, отчётов, Simli и метрик. FastAPI из [app.py](/Users/berk/Dev/projects/IT-IMPERIAL_SpeakingCharacter/app.py) только раздаёт статический frontend на порту `8000` и безопасную публичную конфигурацию.
+Root Kotlin/Ktor backend на порту `8080` — единственный runtime для сессий, LLM, сценариев, отчётов, Simli и метрик. FastAPI из [app.py](./app.py) только раздаёт статический frontend на порту `8000` и безопасную публичную конфигурацию.
 
 ```text
 browser ── HTTP / WS ──> Kotlin/Ktor ──> Gemini SSE
@@ -33,7 +33,7 @@ browser ── HTTP / WS ──> Kotlin/Ktor ──> Gemini SSE
 
 ## Готовые сценарии
 
-Сценарии находятся в [src/main/resources/scenarios](/Users/berk/Dev/projects/IT-IMPERIAL_SpeakingCharacter/src/main/resources/scenarios). Каждый задаёт роль аватара, 4–5 этапов диалога, условия перехода и три критерия оценки.
+Сценарии находятся в [src/main/resources/scenarios](./src/main/resources/scenarios). Каждый задаёт роль аватара, 4–5 этапов диалога, условия перехода и три критерия оценки.
 
 | ID | Тренировка | Роль аватара | Основные этапы | Критерии отчёта |
 | --- | --- | --- | --- | --- |
