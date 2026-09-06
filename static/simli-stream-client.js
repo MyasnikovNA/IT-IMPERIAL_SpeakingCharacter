@@ -73,7 +73,7 @@ export function openSimliStream({
             if (payload.type === "session") {
                 onSession(payload.sessionId);
             } else if (payload.type === "delta") {
-                onDelta();
+                onDelta(payload.delta || "");
             } else if (payload.type === "metrics") {
                 onMetrics(payload);
             } else if (payload.type === "error") {

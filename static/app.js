@@ -1,6 +1,6 @@
-import { openSimliStream } from "./simli-stream-client.js";
+import { openSimliStream } from "./simli-stream-client.js?v=3";
 import { buildLatencyReport, createLatencyTurn, markLatency, reportLatency } from "./latency-monitor.js";
-import { createPushToTalkController } from "./push-to-talk-controller.js?v=12";
+import { createPushToTalkController } from "./push-to-talk-controller.js?v=13";
 
 const video =
     document.getElementById("avatar");
@@ -26,8 +26,12 @@ const userTranscriptText = document.getElementById("user-transcript-text");
 const status =
     document.getElementById("status");
 
-const trainingScenario =
-    document.getElementById("training-scenario");
+const trainingTitle = document.getElementById("training-title");
+const trainerTranscript = document.getElementById("trainer-transcript");
+const finishButton = document.getElementById("finish-training");
+const finishModal = document.getElementById("finish-modal");
+const cancelFinishButton = document.getElementById("cancel-finish");
+const confirmFinishButton = document.getElementById("confirm-finish");
 
 
 let agentManager = null;
@@ -43,6 +47,8 @@ let pendingInterruptedTurn = null;
 let interruptionTimer = null;
 let chatSessionId = null;
 let appConfig = null;
+let trainingFinishing = false;
+let currentAssistantText = "";
 const pageStartedAt = performance.now();
 const scenarioSelection = readScenarioSelection();
 const pushToTalk = createPushToTalkController({
@@ -53,7 +59,8 @@ const pushToTalk = createPushToTalkController({
         if (appConfig) interruptActiveTurn(appConfig);
     },
     submit: (message, metadata) => submitUserMessage(message, metadata),
-    setStatus
+    setStatus,
+    onStateChange: () => updateFinishAvailability()
 });
 
 /** Читает одноразовый сценарий, выбранный до создания новой сессии. */
@@ -99,17 +106,26 @@ function scenarioForNewSession() {
 
 /** Показывает выбранный режим, не выводя содержимое пользовательского Markdown. */
 function renderScenarioLabel() {
+    if (!trainingTitle) return;
+    const display = readScenarioDisplay();
+    trainingTitle.textContent = display?.title || (scenarioSelection?.markdown ? "Пользовательская тренировка" : "Свободная тренировка");
+}
 
-    if (!trainingScenario) {
-        return;
-    }
+/** Читает только безопасные display-метаданные сценария, не его Markdown-инструкции. */
+function readScenarioDisplay() {
+    try { return JSON.parse(sessionStorage.getItem("speaking-character.scenario-display") || "null"); } catch { return null; }
+}
 
-    trainingScenario.textContent = scenarioSelection
-        ? scenarioSelection.presetId
-            ? `Сценарий: ${scenarioSelection.presetId}`
-            : "Сценарий: загруженный Markdown"
-        : "Свободный диалог";
+/** Синхронизирует business action с состоянием созданной сессии и PTT. */
+function updateFinishAvailability() {
+    if (!finishButton) return;
+    finishButton.disabled = !chatSessionId || trainingFinishing || ["LISTENING", "COMMITTING"].includes(pushToTalk.state);
+}
 
+/** Отображает текущую реплику AI-тренера без HTML-интерполяции. */
+function setTrainerTranscript(value) {
+    currentAssistantText = value;
+    if (trainerTranscript) trainerTranscript.textContent = value;
 }
 
 /** Логирует измерение пользовательского пути без содержимого сообщений и секретов. */
@@ -566,6 +582,10 @@ async function submitUserMessage(value, { source = "text" } = {}) {
 
     try {
 
+        if (trainingFinishing) return;
+        if (source === "text") userTranscriptText.textContent = value;
+        setTrainerTranscript("Тренер формулирует ответ…");
+
         const speakStartedAt = performance.now();
 
         speakButton.disabled = true;
@@ -602,6 +622,8 @@ async function submitUserMessage(value, { source = "text" } = {}) {
         }
 
         chatSessionId = payload.sessionId;
+        updateFinishAvailability();
+        setTrainerTranscript(payload.assistantMessage);
         setStatus("Аватар говорит...");
 
 
@@ -721,9 +743,11 @@ async function speakWithSimli(config, message, speakStartedAt) {
         onSession: (sessionId) => {
             chatSessionId = sessionId;
             turn.sessionId = sessionId;
+            updateFinishAvailability();
             markTurnLatency(turn, "session_received");
         },
-        onDelta: () => {
+        onDelta: (delta) => {
+            setTrainerTranscript(currentAssistantText === "Тренер формулирует ответ…" ? delta : currentAssistantText + delta);
             if (!receivedFirstDelta) {
                 receivedFirstDelta = true;
                 markTurnLatency(turn, "gemini_first_delta");
@@ -840,6 +864,44 @@ async function disconnect() {
 
 }
 
+/** Открывает confirmation modal перед необратимым завершением сессии. */
+function openFinishModal() {
+    if (finishButton?.disabled) return;
+    finishModal.hidden = false;
+    confirmFinishButton.focus();
+}
+
+/** Закрывает confirmation modal без изменения training state. */
+function closeFinishModal() {
+    finishModal.hidden = true;
+    finishButton.focus();
+}
+
+/** Завершает разговор, затем переводит пользователя к сохранённому report flow. */
+async function finishTraining() {
+    if (!chatSessionId || trainingFinishing) return;
+    trainingFinishing = true;
+    closeFinishModal();
+    updateFinishAvailability();
+    setStatus("✓ Тренировка завершена. Формируем обратную связь…");
+    pushToTalk.disconnect();
+    if (streamRelay) {
+        try { streamRelay.cancel(); } catch (_) { /* завершение должно продолжиться */ }
+        streamRelay = null;
+    }
+    try { simliClient?.ClearBuffer?.(); } catch (_) { /* best effort */ }
+    try {
+        const response = await fetch(`${appConfig.chat_api_url}/api/sessions/${chatSessionId}/finish`, { method: "POST" });
+        if (!response.ok) throw new Error("Не удалось завершить тренировку");
+        window.location.assign(`/report.html?sessionId=${encodeURIComponent(chatSessionId)}`);
+    } catch (error) {
+        trainingFinishing = false;
+        updateFinishAvailability();
+        setStatus("Не удалось завершить тренировку. Попробуйте ещё раз.");
+        console.error(error);
+    }
+}
+
 
 connectButton.addEventListener(
     "click",
@@ -857,6 +919,13 @@ disconnectButton.addEventListener(
     "click",
     disconnect
 );
+
+finishButton.addEventListener("click", openFinishModal);
+cancelFinishButton.addEventListener("click", closeFinishModal);
+confirmFinishButton.addEventListener("click", finishTraining);
+finishModal.addEventListener("click", (event) => {
+    if (event.target.dataset.closeFinishModal !== undefined) closeFinishModal();
+});
 
 /** Загружает конфигурацию до первого click, чтобы PTT permission не терял user gesture. */
 async function initialize() {

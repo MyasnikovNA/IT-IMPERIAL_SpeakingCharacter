@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Говорящий аватар</title>
-    <link rel="stylesheet" href="/style.css?v=2">
+    <title>AI-тренажёр корпоративных диалогов</title>
+    <link rel="stylesheet" href="/style.css?v=5">
 </head>
 <body>
 <a class="about-button" href="/about.html">О приложении</a>
 <main class="start-page">
     <div class="start-page__content">
         <p class="eyebrow">IMPERIAL SPEAKING CHARACTER</p>
-        <h1>Говорящий аватар</h1>
-        <p class="service-description">Практикуйте деловые диалоги с виртуальным собеседником и развивайте уверенность в разговоре.</p>
+        <h1>AI-тренажёр корпоративных диалогов</h1>
+        <p class="service-description">Практикуйте рабочие ситуации с AI-тренером, отвечайте голосом и получайте персональную обратную связь.</p>
         <label class="scenario-label" for="scenario-preset">Сценарий тренировки</label>
         <select id="scenario-preset" class="scenario-select" disabled>
             <option value="">Без сценария — свободный диалог</option>
@@ -24,9 +24,10 @@
             <input id="scenario-file" type="file" accept=".md,text/markdown">
         </label>
         <p id="scenario-status" class="scenario-status" role="status">Можно начать свободный диалог без сценария.</p>
+        <section id="scenario-preview" class="scenario-preview" hidden aria-live="polite"></section>
         <a class="start-button" id="start-training" href="/training.html?v=2">Начать тренировку</a>
     </div>
 </main>
-<script type="module" src="/landing.js?v=1"></script>
+<script type="module" src="/landing.js?v=2"></script>
 </body>
 </html>
