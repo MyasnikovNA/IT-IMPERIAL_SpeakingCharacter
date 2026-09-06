@@ -88,7 +88,10 @@ data class AppConfig(
                     ?: env.valueOrDefault("CHAT_API_URL", "http://localhost:8080")).trimEnd('/'),
                 geminiApiKey = geminiApiKey,
                 geminiModel = env.valueOrDefault("GEMINI_MODEL", "gemini-2.5-flash-lite"),
-                geminiFallbackModels = env.valueOrDefault("GEMINI_MODEL_FALLBACKS", "")
+                geminiFallbackModels = env.valueOrDefault(
+                    "GEMINI_MODEL_FALLBACKS",
+                    "gemini-2.5-flash-lite,gemini-2.5-flash",
+                )
                     .split(',')
                     .map(String::trim)
                     .filter(String::isNotEmpty),

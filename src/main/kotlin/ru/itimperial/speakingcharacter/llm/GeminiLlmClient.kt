@@ -28,6 +28,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.slf4j.LoggerFactory
 import ru.itimperial.speakingcharacter.model.MessageRole
 import ru.itimperial.speakingcharacter.model.TrainingMessage
 
@@ -38,6 +39,7 @@ class GeminiLlmClient(
     private val model: String,
     private val fallbackModels: List<String> = emptyList(),
 ) : LlmClient {
+    private val logger = LoggerFactory.getLogger(GeminiLlmClient::class.java)
 
     override fun streamReply(
         history: List<TrainingMessage>,
@@ -86,6 +88,12 @@ class GeminiLlmClient(
                 lastFailure = e
                 // Never retry another model after text has already been emitted: it would duplicate spoken output.
                 if (emitted || index == models.lastIndex) throw e
+                logger.warn(
+                    "gemini_model_fallback failedModel={} nextModel={} reason={}",
+                    candidateModel,
+                    models[index + 1],
+                    e.message?.take(240),
+                )
             }
         }
         throw lastFailure ?: IllegalStateException("Gemini generation failed")
