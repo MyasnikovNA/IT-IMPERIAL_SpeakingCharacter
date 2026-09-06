@@ -3,6 +3,7 @@ export function openSimliStream({
     url,
     sessionId,
     message,
+    scenario,
     simliClient,
     onSession,
     onDelta,
@@ -31,7 +32,7 @@ export function openSimliStream({
     };
 
     socket.onopen = () => {
-        socket.send(JSON.stringify({ type: "start", sessionId, message, turnId }));
+        socket.send(JSON.stringify({ type: "start", sessionId, message, scenario, turnId }));
     };
     socket.onmessage = async (event) => {
         if (typeof event.data === "string") {

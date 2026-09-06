@@ -1,92 +1,32 @@
 <!DOCTYPE html>
-
 <html lang="ru">
-
 <head>
-
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>D-ID Avatar</title>
-
-    <link
-        rel="stylesheet"
-        href="/style.css"
-    >
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Говорящий аватар</title>
+    <link rel="stylesheet" href="/style.css">
 </head>
-
-
 <body>
-
-<div class="container">
-
-    <h1>Говорящий аватар</h1>
-
-
-    <video
-        id="avatar"
-        autoplay
-        playsinline
-    ></video>
-
-    <audio
-        id="avatar-audio"
-        autoplay
-        hidden
-    ></audio>
-
-
-    <textarea
-        id="text"
-        placeholder="Введите текст..."
-    >Привет! Это мой говорящий аватар.</textarea>
-
-
-    <div class="buttons">
-
-        <button
-            id="connect"
-        >
-            Подключить
-        </button>
-
-
-        <button
-            id="speak"
-            disabled
-        >
-            Говорить
-        </button>
-
-
-        <button
-            id="disconnect"
-            disabled
-        >
-            Отключить
-        </button>
-
+<a class="about-button" href="/about.html">О приложении</a>
+<main class="start-page">
+    <div class="start-page__content">
+        <p class="eyebrow">IMPERIAL SPEAKING CHARACTER</p>
+        <h1>Говорящий аватар</h1>
+        <p class="service-description">Практикуйте деловые диалоги с виртуальным собеседником и развивайте уверенность в разговоре.</p>
+        <label class="scenario-label" for="scenario-preset">Сценарий тренировки</label>
+        <select id="scenario-preset" class="scenario-select" disabled>
+            <option value="">Без сценария — свободный диалог</option>
+        </select>
+        <label class="scenario-upload" for="scenario-file">
+            <span class="scenario-upload__icon" aria-hidden="true">↑</span>
+            <span class="scenario-upload__title">Или загрузите свой сценарий</span>
+            <span class="scenario-upload__hint" id="scenario-file-name">Markdown-файл до 32 КБ</span>
+            <input id="scenario-file" type="file" accept=".md,text/markdown">
+        </label>
+        <p id="scenario-status" class="scenario-status" role="status">Можно начать свободный диалог без сценария.</p>
+        <a class="start-button" id="start-training" href="/training.html">Начать тренировку</a>
     </div>
-
-
-    <div id="status">
-        Загрузка...
-    </div>
-
-</div>
-
-
-<script
-    type="module"
-    src="/app.js?v=6"
-></script>
-
-
+</main>
+<script type="module" src="/landing.js?v=1"></script>
 </body>
-
 </html>

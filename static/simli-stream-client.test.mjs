@@ -80,3 +80,31 @@ test("отмена очищает Simli buffer и уведомляет backend",
     assert.deepEqual(JSON.parse(socket.sent[1]), { type: "cancel" });
     relay.completion.catch(() => {});
 });
+
+test("relay передаёт сценарий только в start-команде новой сессии", () => {
+    const relay = openSimliStream({
+        url: "ws://test/api/chat/stream",
+        sessionId: null,
+        message: "Начнём тренировку",
+        scenario: { presetId: "sales-discovery" },
+        simliClient: { sendAudioData: () => {}, ClearBuffer: () => {} },
+        onSession: () => {},
+        onDelta: () => {},
+        onFirstPcm: () => {},
+        onDone: () => {},
+        onMetrics: () => {},
+        WebSocketImpl: FakeSocket
+    });
+    const socket = FakeSocket.instance;
+
+    socket.emitOpen();
+
+    assert.deepEqual(JSON.parse(socket.sent[0]), {
+        type: "start",
+        sessionId: null,
+        message: "Начнём тренировку",
+        scenario: { presetId: "sales-discovery" }
+    });
+    relay.cancel();
+    relay.completion.catch(() => {});
+});
