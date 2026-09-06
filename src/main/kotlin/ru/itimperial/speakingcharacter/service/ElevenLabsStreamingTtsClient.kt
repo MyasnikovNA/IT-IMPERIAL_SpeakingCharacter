@@ -112,12 +112,18 @@ class ElevenLabsStreamingTtsClient(
 
     internal fun parseAudio(rawMessage: String): TtsAudioFrame = try {
         val objectMessage = json.parseToJsonElement(rawMessage).jsonObject
+        val providerError = (objectMessage["error"] as? JsonPrimitive)?.contentOrNull
+        if (!providerError.isNullOrBlank()) {
+            throw ElevenLabsException("ElevenLabs TTS error: $providerError")
+        }
         val encoded = (objectMessage["audio"] as? JsonPrimitive)?.contentOrNull
         val pcm = encoded?.let { Base64.getDecoder().decode(it) } ?: ByteArray(0)
         val isFinal = (objectMessage["is_final"] as? JsonPrimitive)?.booleanOrNull
             ?: (objectMessage["isFinal"] as? JsonPrimitive)?.booleanOrNull
             ?: false
         TtsAudioFrame(pcm, parseAlignment(objectMessage["alignment"] as? JsonObject), isFinal)
+    } catch (exception: ElevenLabsException) {
+        throw exception
     } catch (_: Exception) {
         throw ElevenLabsException("ElevenLabs returned an invalid audio frame")
     }
