@@ -56,9 +56,9 @@ class TrainingSessionManagerTest {
         assertEquals(ru.itimperial.speakingcharacter.model.SessionStatus.FINISHED, second.status)
     }
 
-    /** Ошибка evaluation не завершает активную тренировочную сессию. */
+    /** Ошибка evaluation сохраняет завершённую тренировку и разрешает безопасный retry. */
     @Test
-    fun `failed evaluation keeps session active`() = runTest {
+    fun `failed evaluation keeps finished session and marks report failed`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val repo = InMemoryRepository()
         val llm = object : LlmClient {
@@ -70,15 +70,40 @@ class TrainingSessionManagerTest {
         manager.submitUserMessage(session.id, 1, "ответ")
         advanceUntilIdle()
 
-        try {
-            manager.finish(session.id)
-            error("Expected EvaluationException")
-        } catch (_: EvaluationException) {
-            // Ожидаемая ошибка не должна менять статус session aggregate.
-        }
+        manager.finish(session.id)
         val saved = requireNotNull(repo.get(session.id))
-        assertEquals(ru.itimperial.speakingcharacter.model.SessionStatus.ACTIVE, saved.status)
+        assertEquals(ru.itimperial.speakingcharacter.model.SessionStatus.FINISHED, saved.status)
+        assertEquals(ru.itimperial.speakingcharacter.model.ReportStatus.FAILED, saved.reportStatus)
+        assertTrue(saved.finishedAt != null)
         assertEquals(null, saved.report)
+    }
+
+    /** Повторный запуск отчёта после FAILED сохраняет исходный finishedAt и не меняет transcript. */
+    @Test
+    fun `retry report turns failed report ready without changing finished timestamp`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = InMemoryRepository()
+        var calls = 0
+        val llm = object : LlmClient {
+            override fun streamReply(history: List<TrainingMessage>, systemPrompt: String): Flow<String> = flow { emit("answer") }
+            override suspend fun generateText(prompt: String, systemPrompt: String, jsonMode: Boolean): String {
+                calls++
+                return if (calls <= 2) "not-json" else validEvaluationJson()
+            }
+        }
+        val manager = manager(repo, llm, testConfig(), dispatcher)
+        val session = manager.createSession()
+        manager.submitUserMessage(session.id, 1, "ответ")
+        advanceUntilIdle()
+
+        val failed = manager.finish(session.id)
+        val retried = manager.retryReport(session.id)
+
+        assertEquals(ru.itimperial.speakingcharacter.model.ReportStatus.FAILED, failed.reportStatus)
+        assertEquals(ru.itimperial.speakingcharacter.model.ReportStatus.READY, retried.reportStatus)
+        assertEquals(failed.finishedAt, retried.finishedAt)
+        assertTrue(retried.messages.isNotEmpty())
+        assertEquals(3, calls)
     }
 
     /** Закрепляет выбранный сценарий в сессии и передаёт его только в system prompt. */

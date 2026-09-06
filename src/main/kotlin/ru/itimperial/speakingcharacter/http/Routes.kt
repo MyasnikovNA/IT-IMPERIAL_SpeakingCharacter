@@ -31,7 +31,10 @@ import ru.itimperial.speakingcharacter.model.CreateSessionRequest
 import ru.itimperial.speakingcharacter.model.CreateSessionResponse
 import ru.itimperial.speakingcharacter.model.FrontendConfig
 import ru.itimperial.speakingcharacter.model.InterruptRequest
+import ru.itimperial.speakingcharacter.model.ReportStatus
 import ru.itimperial.speakingcharacter.model.ServerEvent
+import ru.itimperial.speakingcharacter.model.TrainingResultDto
+import ru.itimperial.speakingcharacter.model.TrainingResultMessageDto
 import ru.itimperial.speakingcharacter.service.TrainingSessionManager
 import ru.itimperial.speakingcharacter.service.ElevenLabsScribeTokenClient
 
@@ -117,6 +120,37 @@ fun Application.configureRoutes() {
                 call.respond(session)
             }
 
+            /** Отдаёт report UI только безопасные данные, не раскрывая внутренний system prompt сценария. */
+            get("/sessions/{id}/result") {
+                val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+                val session = manager.getSession(id) ?: return@get call.respond(HttpStatusCode.NotFound)
+                call.respond(
+                    TrainingResultDto(
+                        sessionId = session.id,
+                        createdAt = session.createdAt,
+                        finishedAt = session.finishedAt,
+                        status = session.status,
+                        reportStatus = session.reportStatus,
+                        reportError = session.reportError,
+                        scenario = session.scenarioSnapshot?.definition?.let { definition ->
+                            ru.itimperial.speakingcharacter.model.ScenarioSummaryDto(
+                                id = definition.id,
+                                version = definition.version,
+                                title = definition.title,
+                                criteria = definition.criteria,
+                                stages = definition.stages.map { stage -> ru.itimperial.speakingcharacter.model.ScenarioStageDto(stage.id, stage.goal) },
+                            )
+                        },
+                        scenarioSource = session.scenarioSnapshot?.source?.name,
+                        messages = session.messages.map { message ->
+                            TrainingResultMessageDto(message.role, message.text, message.createdAt, message.generationId, message.interrupted)
+                        },
+                        metrics = session.metrics,
+                        report = session.report,
+                    ),
+                )
+            }
+
             post("/sessions/{id}/interrupt") {
                 val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
                 val request = call.receive<InterruptRequest>()
@@ -129,15 +163,24 @@ fun Application.configureRoutes() {
                 call.respond(manager.finish(id))
             }
 
+            post("/sessions/{id}/report/retry") {
+                val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+                val session = manager.getSession(id) ?: return@post call.respond(HttpStatusCode.NotFound)
+                if (session.status != ru.itimperial.speakingcharacter.model.SessionStatus.FINISHED) {
+                    call.respond(HttpStatusCode.Conflict, mapOf("error" to "Training is still active."))
+                    return@post
+                }
+                call.respond(manager.retryReport(id))
+            }
+
             get("/sessions/{id}/report") {
                 val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
                 val session = manager.getSession(id)
                     ?: return@get call.respond(HttpStatusCode.NotFound)
-                val report = session.report
-                    ?: return@get call.respond(
-                        HttpStatusCode.Conflict,
-                        mapOf("error" to "Report is not ready. Finish the session first."),
-                    )
+                val report = session.report ?: return@get call.respond(
+                    HttpStatusCode.Conflict,
+                    mapOf("status" to session.reportStatus.name, "error" to (session.reportError ?: "Report is not ready.")),
+                )
                 call.respond(report)
             }
         }
