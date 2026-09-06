@@ -3,9 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:frontend": "esbuild node_modules/simli-client/dist/index.js --bundle --format=esm --platform=browser --outfile=static/vendor/simli-client.js"
+    "build:simli": "esbuild node_modules/simli-client/dist/index.js --bundle --format=esm --platform=browser --outfile=static/vendor/simli-client.js",
+    "build:scribe": "esbuild frontend-vendor/scribe-entry.js --bundle --format=esm --platform=browser --outfile=static/vendor/elevenlabs-scribe.js",
+    "build:frontend": "npm run build:simli && npm run build:scribe",
+    "test:frontend": "node --test static/*.test.mjs"
   },
   "dependencies": {
+    "@elevenlabs/client": "1.24.0",
     "simli-client": "3.0.2"
   },
   "devDependencies": {

@@ -1,5 +1,6 @@
 import { openSimliStream } from "./simli-stream-client.js";
 import { buildLatencyReport, createLatencyTurn, markLatency, reportLatency } from "./latency-monitor.js";
+import { createPushToTalkController } from "./push-to-talk-controller.js?v=12";
 
 const video =
     document.getElementById("avatar");
@@ -18,6 +19,9 @@ const speakButton =
 
 const disconnectButton =
     document.getElementById("disconnect");
+
+const pushToTalkButton = document.getElementById("push-to-talk");
+const userTranscriptText = document.getElementById("user-transcript-text");
 
 const status =
     document.getElementById("status");
@@ -41,6 +45,16 @@ let chatSessionId = null;
 let appConfig = null;
 const pageStartedAt = performance.now();
 const scenarioSelection = readScenarioSelection();
+const pushToTalk = createPushToTalkController({
+    button: pushToTalkButton,
+    transcriptElement: userTranscriptText,
+    ensureAvatarConnected: () => Boolean(agentManager || (simliClient && simliConnected)),
+    interrupt: () => {
+        if (appConfig) interruptActiveTurn(appConfig);
+    },
+    submit: (message, metadata) => submitUserMessage(message, metadata),
+    setStatus
+});
 
 /** Читает одноразовый сценарий, выбранный до создания новой сессии. */
 function readScenarioSelection() {
@@ -137,14 +151,16 @@ function finishTurnLatency(turn, config, outcome) {
 /** Отменяет текущую речь перед новым вводом и начинает измерение target 300 мс. */
 function interruptActiveTurn(config) {
 
-    if (!activeLatencyTurn) {
+    if (!activeLatencyTurn && !streamRelay && !avatarSpeaking) {
         return;
     }
 
     const interruptedTurn = activeLatencyTurn;
-    interruptedTurn.interrupted = true;
-    markTurnLatency(interruptedTurn, "interruption_requested");
-    pendingInterruptedTurn = interruptedTurn;
+    if (interruptedTurn) {
+        interruptedTurn.interrupted = true;
+        markTurnLatency(interruptedTurn, "interruption_requested");
+        pendingInterruptedTurn = interruptedTurn;
+    }
     activeLatencyTurn = null;
 
     if (streamRelay) {
@@ -219,6 +235,13 @@ async function connect() {
 
     try {
 
+        // Safari требует разблокировать Web Audio в user gesture. Сам микрофон
+        // открывает только Scribe: второй probe getUserMedia создавал второй
+        // browser prompt и ломал PTT на Safari.
+        if (appConfig?.stt_enabled) {
+            pushToTalk.prepareBrowserAudio();
+        }
+
         const connectStartedAt = performance.now();
 
         setStatus(
@@ -228,11 +251,13 @@ async function connect() {
         connectButton.disabled = true;
 
 
-        const config =
-            await loadConfig();
+        // Кнопка становится доступной только после initialize(), поэтому повторный
+        // HTTP-запрос здесь не нужен: используем уже полученную конфигурацию.
+        const config = appConfig ?? await loadConfig();
+        const sttPreconnection = beginSpeechRecognition(config);
 
         if (config.avatar_provider === "simli") {
-            await connectSimli(config, connectStartedAt);
+            await connectSimli(config, connectStartedAt, sttPreconnection);
             return;
         }
 
@@ -365,8 +390,10 @@ async function connect() {
         );
 
 
-        speakButton.disabled =
-            false;
+        speakButton.disabled = false;
+        // Распознавание не должно задерживать уже готового аватара: Scribe
+        // догружается отдельно, а PTT включится сам после успешного подключения.
+        void activatePushToTalk(sttPreconnection);
 
         disconnectButton.disabled =
             false;
@@ -376,6 +403,7 @@ async function connect() {
     catch (error) {
 
         console.error(error);
+        pushToTalk.disconnect();
 
         setStatus(
             "Ошибка подключения: "
@@ -390,7 +418,7 @@ async function connect() {
 }
 
 /** Подключает Simli по token, не получая API key и Face ID в браузер. */
-async function connectSimli(config, connectStartedAt) {
+async function connectSimli(config, connectStartedAt, sttPreconnection) {
 
     setStatus("Подключение к Simli...");
     simliConnected = false;
@@ -472,6 +500,9 @@ async function connectSimli(config, connectStartedAt) {
     logTiming("avatar_connect_total", connectStartedAt, { provider: "simli" });
     speakButton.disabled = false;
     disconnectButton.disabled = false;
+    // Scribe подключается параллельно, но его timeout или provider error не
+    // может удерживать Simli в состоянии «Подключение».
+    void activatePushToTalk(sttPreconnection);
 }
 
 /** Возвращает UI в состояние переподключения после idle timeout или ошибки Simli. */
@@ -496,6 +527,7 @@ function handleSimliTransportStopped(message) {
     audio.srcObject = null;
     speakButton.disabled = true;
     disconnectButton.disabled = true;
+    pushToTalk.disconnect();
     connectButton.disabled = false;
     setStatus(message);
 
@@ -503,9 +535,11 @@ function handleSimliTransportStopped(message) {
 
 /** Запрашивает ответ LLM у Kotlin backend и передаёт его в D-ID. */
 async function speak() {
+    await submitUserMessage(text.value.trim(), { source: "text" });
+}
 
-    const value =
-        text.value.trim();
+/** Отправляет committed text любого источника в единственный существующий training pipeline. */
+async function submitUserMessage(value, { source = "text" } = {}) {
 
 
     if (!value) {
@@ -580,7 +614,7 @@ async function speak() {
 
         });
         logTiming("did_speak_completed", didSpeakStartedAt, { sessionId: chatSessionId });
-        logTiming("speak_total", speakStartedAt, { sessionId: chatSessionId });
+        logTiming("speak_total", speakStartedAt, { sessionId: chatSessionId, source });
 
 
         setStatus(
@@ -601,8 +635,7 @@ async function speak() {
     }
     finally {
 
-        speakButton.disabled =
-            false;
+        speakButton.disabled = false;
 
     }
 
@@ -614,6 +647,45 @@ function streamUrl(chatApiUrl) {
     const url = new URL("/api/chat/stream", chatApiUrl);
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     return url.toString();
+
+}
+
+/** Передаёт Scribe только публичные runtime-настройки и Kotlin token endpoint. */
+function configurePushToTalk(config) {
+
+    pushToTalk.configure({
+        tokenUrl: new URL("/api/stt/token", config.chat_api_url).toString(),
+        modelId: config.scribe_model || "scribe_v2_realtime",
+        languageCode: config.scribe_language_code || undefined
+    });
+
+}
+
+/**
+ * Открывает Scribe параллельно с WebRTC аватара, сразу после browser gesture.
+ * Кнопка PTT остаётся выключенной до activatePushToTalk(), то есть до готовности
+ * самого аватара.
+ */
+function beginSpeechRecognition(config) {
+
+    if (!config.stt_enabled) {
+        return Promise.resolve(false);
+    }
+
+    configurePushToTalk(config);
+    return pushToTalk.transcriber.connect()
+        .then(() => pushToTalk.state === "READY")
+        .catch(() => false);
+
+}
+
+/** Включает PTT в UI только когда одновременно готовы аватар и Scribe. */
+async function activatePushToTalk(sttPreconnection) {
+
+    if (!await sttPreconnection) {
+        return;
+    }
+    await pushToTalk.connect();
 
 }
 
@@ -747,6 +819,8 @@ async function disconnect() {
 
     agentManager = null;
 
+    pushToTalk.disconnect();
+
     video.srcObject = null;
 
 
@@ -784,4 +858,19 @@ disconnectButton.addEventListener(
     disconnect
 );
 
-renderScenarioLabel();
+/** Загружает конфигурацию до первого click, чтобы PTT permission не терял user gesture. */
+async function initialize() {
+
+    renderScenarioLabel();
+    try {
+        await loadConfig();
+        connectButton.disabled = false;
+        setStatus("Нажмите «Подключить», затем разрешите доступ к микрофону.");
+    } catch (error) {
+        console.error(error);
+        setStatus("Не удалось загрузить конфигурацию приложения.");
+    }
+
+}
+
+void initialize();

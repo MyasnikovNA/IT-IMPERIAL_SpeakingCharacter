@@ -1,8 +1,10 @@
 <!DOCTYPE html>
-<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Тренировка — Говорящий аватар</title><link rel="stylesheet" href="/style.css?v=2"></head>
+<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Тренировка — Говорящий аватар</title><link rel="stylesheet" href="/style.css?v=3"></head>
 <body><main class="container training-page"><section class="training-card">
     <a class="back-link" href="/?v=2">← Выбрать сценарий для новой тренировки</a><h1>Говорящий аватар</h1><p class="training-scenario" id="training-scenario">Свободный диалог</p>
     <video id="avatar" autoplay playsinline></video><audio id="avatar-audio" autoplay hidden></audio>
-    <textarea id="text" placeholder="Введите сообщение для аватара…">Давай приступим к тренировке. Задавай вопросы!</textarea>
-    <div class="buttons"><button id="connect">Подключить</button><button id="speak" disabled>Говорить</button><button id="disconnect" disabled>Отключить</button></div><div id="status">Загрузка…</div>
-</section></main><script type="module" src="/app.js?v=9"></script></body></html>
+    <section class="user-transcript" aria-live="polite"><span class="user-transcript-label">Вы:</span><span id="user-transcript-text">Нажмите и удерживайте кнопку, чтобы ответить голосом.</span></section>
+    <button id="push-to-talk" class="ptt-button" disabled aria-pressed="false">Микрофон недоступен</button>
+    <details class="text-fallback"><summary>Ввести текст вручную</summary><textarea id="text" placeholder="Введите сообщение для аватара…">Давай приступим к тренировке. Задавай вопросы!</textarea><button id="speak" disabled>Отправить текст</button></details>
+    <div class="buttons"><button id="connect" disabled>Подключить</button><button id="disconnect" disabled>Отключить</button></div><div id="status">Загрузка…</div>
+</section></main><script type="module" src="/app.js?v=22"></script></body></html>
