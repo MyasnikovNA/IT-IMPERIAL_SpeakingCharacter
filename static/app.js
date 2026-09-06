@@ -22,7 +22,6 @@ const disconnectButton =
 const status =
     document.getElementById("status");
 
-
 let agentManager = null;
 let simliClient = null;
 let streamRelay = null;

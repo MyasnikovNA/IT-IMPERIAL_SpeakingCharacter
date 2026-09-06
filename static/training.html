@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тренировка — Говорящий аватар</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="container training-page">
+    <section class="training-card">
+        <a class="back-link" href="/">← На главную</a>
+        <!-- <h1>Говорящий аватар</h1> -->
+        <video id="avatar" autoplay playsinline></video>
+        <audio id="avatar-audio" autoplay hidden></audio>
+        <textarea id="text" placeholder="Введите текст...">Привет! Это мой говорящий аватар.</textarea>
+        <div class="buttons">
+            <button id="connect">Подключить</button>
+            <button id="speak" disabled>Говорить</button>
+            <button id="disconnect" disabled>Отключить</button>
+        </div>
+        <div id="status">Загрузка...</div>
+    </section>
+</main>
+<script type="module">
+import * as did from "https://esm.sh/@d-id/client-sdk";
+import { SimliClient, LogLevel } from "https://esm.sh/simli-client@3.0.2";
+window.DID = did;
+window.Simli = { SimliClient, LogLevel };
+</script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

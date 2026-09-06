@@ -1,149 +1,734 @@
+
 * {
     box-sizing: border-box;
 }
 
+:root {
+    --bg: #f4f3f8;
+    --bg-soft: #eeedf4;
+
+    --card: #ffffff;
+    --card-soft: #f8f7fb;
+
+    --primary: #6842c2;
+    --primary-hover: #5734aa;
+    --primary-soft: #eee9fa;
+
+    --text: #55177f;
+    --text-secondary: #6f6a7d;
+    --text-muted: #9994a6;
+
+    --border: #d8d4e2;
+    --border-strong: #c8c2d5;
+
+    --shadow:
+        0 18px 45px rgba(54, 42, 82, 0.08),
+        0 3px 10px rgba(54, 42, 82, 0.04);
+
+    --radius: 14px;
+}
+
+
+/* =========================================================
+   Base
+   ========================================================= */
+
+html {
+    min-height: 100%;
+}
 
 body {
-
     margin: 0;
-
     min-height: 100vh;
 
-    background: #111827;
+    background: var(--bg);
+    color: var(--text);
 
     font-family:
-        Arial,
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
         sans-serif;
 
-    color: white;
-
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
 
-.container {
+/* =========================================================
+   Start page
+   ========================================================= */
 
-    width: 700px;
+.start-page {
+    min-height: 100vh;
 
-    max-width: 95%;
+    display: grid;
+    place-items: center;
 
-    margin: 40px auto;
+    padding: 48px 20px;
 
+    background:
+        radial-gradient(
+            circle at 50% 0%,
+            rgba(104, 66, 194, 0.06),
+            transparent 45%
+        ),
+        var(--bg);
 }
 
+.start-page__content {
+    width: min(100%, 680px);
 
-h1 {
+    padding: 44px;
 
     text-align: center;
 
+    background: rgba(255, 255, 255, 0.82);
+
+    border: 2px solid var(--border);
+    border-radius: 18px;
+
+    box-shadow: var(--shadow);
+
+    backdrop-filter: blur(8px);
+}
+
+.start-page h1 {
+    margin: 0;
+
+    color: var(--text);
+
+    font-size: clamp(42px, 7vw, 62px);
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -2px;
+}
+
+.service-description {
+    max-width: 540px;
+
+    margin: 24px auto 40px;
+
+    color: var(--text-secondary);
+
+    font-size: 19px;
+    line-height: 1.55;
 }
 
 
+/* =========================================================
+   Scenario upload
+   ========================================================= */
+
+.scenario-upload {
+    min-height: 220px;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    gap: 10px;
+
+    padding: 28px;
+
+    background: var(--card-soft);
+
+    border: 2px solid var(--border-strong);
+    border-radius: var(--radius);
+
+    cursor: pointer;
+
+    transition:
+        background 160ms ease,
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        transform 160ms ease;
+}
+
+.scenario-upload:hover,
+.scenario-upload:focus-within {
+    background: var(--primary-soft);
+
+    border-color: var(--primary);
+
+    box-shadow:
+        0 8px 24px rgba(104, 66, 194, 0.08);
+
+    transform: translateY(-1px);
+}
+
+.scenario-upload__icon {
+    width: 48px;
+    height: 48px;
+
+    display: grid;
+    place-items: center;
+
+    background: var(--primary-soft);
+
+    border: 2px solid rgba(104, 66, 194, 0.25);
+    border-radius: 50%;
+
+    color: var(--primary);
+
+    font:
+        28px/1
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        sans-serif;
+}
+
+.scenario-upload__title {
+    color: var(--text);
+
+    font-size: 19px;
+    font-weight: 600;
+}
+
+.scenario-upload__hint {
+    color: var(--text-muted);
+
+    font:
+        14px/1.4
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        sans-serif;
+}
+
+.scenario-upload input {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+
+    overflow: hidden;
+
+    clip: rect(0 0 0 0);
+}
+
+
+/* =========================================================
+   Main button
+   ========================================================= */
+
+.start-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 52px;
+
+    margin-top: 26px;
+    padding: 14px 30px;
+
+    background: var(--primary);
+
+    border: 2px solid var(--primary);
+    border-radius: 10px;
+
+    color: #ffffff;
+
+    font:
+        700 16px/1.2
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        sans-serif;
+
+    text-decoration: none;
+
+    cursor: pointer;
+
+    box-shadow:
+        0 7px 18px rgba(104, 66, 194, 0.18);
+
+    transition:
+        background 160ms ease,
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        transform 160ms ease;
+}
+
+.start-button:hover,
+.start-button:focus-visible {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+
+    box-shadow:
+        0 10px 24px rgba(104, 66, 194, 0.24);
+
+    transform: translateY(-1px);
+}
+
+.start-button:active {
+    transform: translateY(0);
+}
+
+
+/* =========================================================
+   Training page
+   ========================================================= */
+
+.container {
+    width: 700px;
+    max-width: calc(100% - 40px);
+
+    margin: 40px auto;
+}
+
+.training-page {
+    color: var(--text);
+}
+
+.training-card {
+    padding: 30px;
+
+    /*
+     * Основная карточка немного светлее,
+     * чем внешний фон.
+     */
+    background: var(--card);
+
+    border: 2px solid var(--border);
+    border-radius: 16px;
+
+    box-shadow: var(--shadow);
+}
+
+
+/* =========================================================
+   Back link
+   ========================================================= */
+
+.back-link {
+    display: inline-flex;
+    align-items: center;
+
+    margin-bottom: 8px;
+
+    color: var(--text-secondary);
+
+    font-size: 14px;
+    font-weight: 500;
+
+    text-decoration: none;
+
+    transition:
+        color 160ms ease;
+}
+
+.back-link:hover,
+.back-link:focus-visible {
+    color: var(--primary);
+
+    text-decoration: none;
+}
+
+
+/* =========================================================
+   Headings
+   ========================================================= */
+
+.training-page h1 {
+    margin: 8px 0 24px;
+
+    text-align: center;
+
+    color: var(--text);
+
+    font-size: 32px;
+    font-weight: 700;
+
+    letter-spacing: -0.5px;
+}
+
+
+/* =========================================================
+   Avatar
+   ========================================================= */
+
 video {
-
     width: 100%;
-
     min-height: 400px;
-
-    background: black;
-
-    border-radius: 15px;
 
     display: block;
 
+    background: #d0c8e3;
+
+    border: 2px solid var(--border-strong);
+    border-radius: 12px;
+
+    object-fit: cover;
+
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 
+/* =========================================================
+   Text input
+   ========================================================= */
+
 textarea {
-
     width: 100%;
-
     height: 120px;
 
     margin-top: 20px;
+    padding: 15px 16px;
 
-    padding: 15px;
+    background: var(--card-soft);
 
+    border: 2px solid var(--border-strong);
     border-radius: 10px;
 
-    border: none;
+    color: var(--text);
 
-    font-size: 18px;
+    font:
+        17px/1.5
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        sans-serif;
+
+    outline: none;
 
     resize: vertical;
 
+    transition:
+        border-color 160ms ease,
+        background 160ms ease,
+        box-shadow 160ms ease;
+}
+
+textarea::placeholder {
+    color: var(--text-muted);
+}
+
+textarea:hover {
+    background: #ffffff;
+}
+
+textarea:focus {
+    background: #ffffff;
+
+    border-color: var(--primary);
+
+    box-shadow:
+        0 0 0 3px rgba(104, 66, 194, 0.10);
 }
 
 
-.buttons {
+/* =========================================================
+   Buttons
+   ========================================================= */
 
+.buttons {
     display: flex;
 
     gap: 10px;
 
     margin-top: 15px;
-
 }
 
-
 button {
-
     flex: 1;
 
-    padding: 14px;
+    min-height: 48px;
 
-    border: none;
+    padding: 13px 16px;
 
-    border-radius: 8px;
+    border: 2px solid var(--primary);
+    border-radius: 9px;
 
-    font-size: 16px;
+    background: var(--primary);
+    color: #ffffff;
+
+    font:
+        600 15px/1.2
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        sans-serif;
 
     cursor: pointer;
 
+    transition:
+        background 160ms ease,
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        transform 160ms ease;
 }
 
+button:hover:not(:disabled) {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+
+    box-shadow:
+        0 6px 16px rgba(104, 66, 194, 0.16);
+
+    transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+    transform: translateY(0);
+}
 
 button:disabled {
-
-    opacity: .4;
+    opacity: 0.45;
 
     cursor: not-allowed;
 
+    box-shadow: none;
 }
 
 
-#connect {
+/*
+ * Все три кнопки теперь находятся
+ * в одной цветовой системе.
+ */
 
-    background: #2563eb;
-
-    color: white;
-
-}
-
-
-#speak {
-
-    background: #16a34a;
-
-    color: white;
-
-}
-
-
+#connect,
+#speak,
 #disconnect {
-
-    background: #dc2626;
-
-    color: white;
-
+    background: var(--primary);
+    color: #ffffff;
+    border-color: var(--primary);
 }
 
+#connect:hover:not(:disabled),
+#speak:hover:not(:disabled),
+#disconnect:hover:not(:disabled) {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+}
+
+
+/* =========================================================
+   Status
+   ========================================================= */
 
 #status {
+    min-height: 22px;
 
     margin-top: 15px;
 
     text-align: center;
 
-    color: #9ca3af;
+    color: var(--text-secondary);
 
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+
+/* =========================================================
+   Mobile
+   ========================================================= */
+
+@media (max-width: 640px) {
+
+    .start-page {
+        padding: 24px 16px;
+    }
+
+    .start-page__content {
+        padding: 28px 20px;
+
+        border-radius: 14px;
+    }
+
+    .start-page h1 {
+        font-size: 42px;
+        letter-spacing: -1px;
+    }
+
+    .service-description {
+        font-size: 17px;
+
+        margin-bottom: 30px;
+    }
+
+    .scenario-upload {
+        min-height: 190px;
+    }
+
+    .container {
+        max-width: calc(100% - 24px);
+
+        margin: 20px auto;
+    }
+
+    .training-card {
+        padding: 20px;
+
+        border-radius: 14px;
+    }
+
+    .training-page h1 {
+        font-size: 27px;
+    }
+
+    video {
+        min-height: 260px;
+    }
+
+    .buttons {
+        flex-direction: column;
+    }
+
+    button {
+        width: 100%;
+    }
+}
+
+
+/* =========================================================
+   About page — additive styles only
+   Existing styles above remain unchanged.
+   ========================================================= */
+.about-button {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 10px 16px;
+    background: #ffffff;
+    color: #6842c2;
+    border: 2px solid #d8d4e2;
+    border-radius: 10px;
+    font: 600 14px/1.2 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    text-decoration: none;
+    box-shadow: 0 6px 18px rgba(54, 42, 82, 0.06);
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.about-button:hover,
+.about-button:focus-visible {
+    background: #eee9fa;
+    border-color: #6842c2;
+    color: #5734aa;
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.about-page {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 48px 20px;
+    background: #f4f3f8;
+}
+
+.about-page__content {
+    width: min(100%, 760px);
+    padding: 44px;
+    background: #ffffff;
+    border: 2px solid #d8d4e2;
+    border-radius: 18px;
+    box-shadow: 0 18px 45px rgba(54, 42, 82, 0.08), 0 3px 10px rgba(54, 42, 82, 0.04);
+}
+
+.about-page__back {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 28px;
+    color: #6f6a7d;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+}
+
+.about-page__back:hover,
+.about-page__back:focus-visible {
+    color: #6842c2;
+    outline: none;
+}
+
+.about-page h1 {
+    margin: 0 0 18px;
+    color: #55177f;
+    font-size: clamp(34px, 6vw, 52px);
+    line-height: 1.05;
+    letter-spacing: -1.5px;
+}
+
+.about-page__lead {
+    margin: 0 0 30px;
+    color: #6f6a7d;
+    font-size: 18px;
+    line-height: 1.6;
+}
+
+.about-section {
+    padding: 22px 0;
+    border-top: 2px solid #d8d4e2;
+}
+
+.about-section h2 {
+    margin: 0 0 10px;
+    color: #252231;
+    font-size: 20px;
+    line-height: 1.3;
+}
+
+.about-section p {
+    margin: 0;
+    color: #6f6a7d;
+    font-size: 16px;
+    line-height: 1.65;
+}
+
+.about-back-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    margin-top: 26px;
+    padding: 12px 24px;
+    background: #6842c2;
+    color: #ffffff;
+    border: 2px solid #6842c2;
+    border-radius: 10px;
+    font: 700 15px/1.2 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    text-decoration: none;
+    box-shadow: 0 7px 18px rgba(104, 66, 194, 0.16);
+    transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.about-back-button:hover,
+.about-back-button:focus-visible {
+    background: #5734aa;
+    border-color: #5734aa;
+    transform: translateY(-1px);
+    outline: none;
+}
+
+@media (max-width: 640px) {
+    .about-button {
+        top: 14px;
+        left: 14px;
+    }
+
+    .start-page {
+        padding-top: 72px;
+    }
+
+    .about-page {
+        padding: 72px 12px 24px;
+    }
+
+    .about-page__content {
+        padding: 28px 20px;
+        border-radius: 14px;
+    }
 }

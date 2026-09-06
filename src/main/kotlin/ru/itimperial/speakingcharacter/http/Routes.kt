@@ -4,6 +4,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
+import io.ktor.server.http.content.staticFiles
 import io.ktor.server.request.receive
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.koin.ktor.ext.inject
+import java.io.File
 import ru.itimperial.speakingcharacter.config.AppConfig
 import ru.itimperial.speakingcharacter.config.AvatarProvider
 import ru.itimperial.speakingcharacter.model.ClientEvent
@@ -40,6 +42,10 @@ fun Application.configureRoutes() {
     val config by inject<AppConfig>()
 
     routing {
+        staticFiles("/", File("static")) {
+            default("index.html")
+        }
+
         get("/health") {
             call.respond(
                 mapOf(
