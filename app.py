@@ -32,9 +32,13 @@ def config():
     """Возвращает публичную конфигурацию frontend без серверных секретов."""
 
     avatar_provider = os.getenv("AVATAR_PROVIDER", "did").lower()
+    scribe_language = os.getenv("SCRIBE_LANGUAGE_CODE")
     response = {
         "avatar_provider": avatar_provider,
         "chat_api_url": os.getenv("CHAT_API_URL", "http://localhost:8080"),
+        "stt_enabled": bool(os.getenv("ELEVENLABS_API_KEY", "").strip()),
+        "scribe_model": os.getenv("SCRIBE_MODEL", "scribe_v2_realtime").strip() or "scribe_v2_realtime",
+        "scribe_language_code": "ru" if scribe_language is None else scribe_language.strip() or None,
     }
 
     if avatar_provider == "did":

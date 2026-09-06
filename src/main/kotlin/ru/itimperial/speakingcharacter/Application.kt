@@ -22,6 +22,7 @@ import ru.itimperial.speakingcharacter.http.configureRoutes
 import ru.itimperial.speakingcharacter.model.ErrorResponse
 import ru.itimperial.speakingcharacter.service.SessionNotFoundException
 import ru.itimperial.speakingcharacter.service.EvaluationException
+import ru.itimperial.speakingcharacter.service.ScribeTokenException
 /** Запускает HTTP-сервер корпоративного тренажёра с настройками окружения. */
 fun main() {
     val config = AppConfig.fromEnvironment()
@@ -84,6 +85,9 @@ fun Application.module(config: AppConfig = AppConfig.fromEnvironment()) {
         }
         exception<EvaluationException> { call, cause ->
             call.respond(io.ktor.http.HttpStatusCode.BadGateway, ErrorResponse(cause.message ?: "evaluation failed"))
+        }
+        exception<ScribeTokenException> { call, cause ->
+            call.respond(io.ktor.http.HttpStatusCode.BadGateway, ErrorResponse(cause.message ?: "Speech recognition is unavailable"))
         }
         exception<IllegalArgumentException> { call, cause ->
             call.respond(io.ktor.http.HttpStatusCode.BadRequest, ErrorResponse(cause.message ?: "Bad request"))

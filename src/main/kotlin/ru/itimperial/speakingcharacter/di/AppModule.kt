@@ -16,6 +16,7 @@ import ru.itimperial.speakingcharacter.repository.FileTrainingRepository
 import ru.itimperial.speakingcharacter.repository.PostgresTrainingRepository
 import ru.itimperial.speakingcharacter.repository.TrainingRepository
 import ru.itimperial.speakingcharacter.service.ElevenLabsStreamingTtsClient
+import ru.itimperial.speakingcharacter.service.ElevenLabsScribeTokenClient
 import ru.itimperial.speakingcharacter.service.ReportService
 import ru.itimperial.speakingcharacter.service.SimliSessionTokenClient
 import ru.itimperial.speakingcharacter.service.StreamingTtsClient
@@ -64,6 +65,7 @@ fun appModule(config: AppConfig) = module {
         )
     }
     single<StreamingTtsClient> { ElevenLabsStreamingTtsClient(get(), get()) }
+    single { ElevenLabsScribeTokenClient(get(), get()) }
     single { SimliSessionTokenClient(get(), get()) }
     single(createdAtStart = true) { ScenarioCatalog() }
     single { ScenarioResolver(get()) }

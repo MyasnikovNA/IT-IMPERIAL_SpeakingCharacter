@@ -46,6 +46,8 @@ data class AppConfig(
     val elevenLabsApiKey: String? = null,
     val elevenLabsVoiceId: String? = null,
     val elevenLabsModel: String = "eleven_flash_v2_5",
+    val scribeModel: String = "scribe_v2_realtime",
+    val scribeLanguageCode: String? = "ru",
     val streamMinChars: Int = 50,
     val storageBackend: StorageBackend = StorageBackend.FILE,
     val databaseUrl: String? = null,
@@ -69,6 +71,11 @@ data class AppConfig(
             val simliFaceId = env.optional("SIMLI_FACE_ID")
             val elevenLabsApiKey = env.optional("ELEVENLABS_API_KEY")
             val elevenLabsVoiceId = env.optional("ELEVENLABS_VOICE_ID")
+            val scribeLanguageCode = if (env.containsKey("SCRIBE_LANGUAGE_CODE")) {
+                env["SCRIBE_LANGUAGE_CODE"].orEmpty().trim().takeIf { it.isNotEmpty() }
+            } else {
+                "ru"
+            }
 
             if (storageBackend == StorageBackend.POSTGRES) {
                 require(databaseUrl != null) { "DATABASE_URL is required when STORAGE_BACKEND=postgres" }
@@ -107,6 +114,8 @@ data class AppConfig(
                 elevenLabsApiKey = elevenLabsApiKey,
                 elevenLabsVoiceId = elevenLabsVoiceId,
                 elevenLabsModel = env.valueOrDefault("ELEVENLABS_MODEL", "eleven_flash_v2_5"),
+                scribeModel = env.valueOrDefault("SCRIBE_MODEL", "scribe_v2_realtime"),
+                scribeLanguageCode = scribeLanguageCode,
                 streamMinChars = env.positiveInt("STREAM_MIN_CHARS", 50),
                 storageBackend = storageBackend,
                 databaseUrl = databaseUrl,
