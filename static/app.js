@@ -617,6 +617,18 @@ function streamUrl(chatApiUrl) {
 
 }
 
+/** Выбирает размер PCM16 блока для Simli; raw нужен только для локального A/B сравнения. */
+function resolvePcmChunkBytes() {
+
+    const value = new URLSearchParams(window.location.search).get("pcmChunkBytes");
+    if (value === "raw") {
+        return null;
+    }
+    const parsed = Number(value || 6000);
+    return Number.isInteger(parsed) && parsed > 0 && parsed % 2 === 0 ? parsed : 6000;
+
+}
+
 /** Передаёт Gemini text stream и PCM16 фреймы в уже подключённый Simli client. */
 async function speakWithSimli(config, message, speakStartedAt) {
 
@@ -632,6 +644,7 @@ async function speakWithSimli(config, message, speakStartedAt) {
         message,
         scenario: scenarioForNewSession(),
         simliClient,
+        pcmChunkBytes: resolvePcmChunkBytes(),
         turnId: turn.turnId,
         onSession: (sessionId) => {
             chatSessionId = sessionId;

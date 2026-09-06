@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { openSimliStream } from "./simli-stream-client.js";
+import { openSimliStream, PcmChunkBuffer } from "./simli-stream-client.js";
+
+test("PCM rechunker передаёт Simli блоки фиксированного размера и хвост", () => {
+    const buffer = new PcmChunkBuffer(6);
+
+    assert.deepEqual(buffer.push(new Uint8Array([1, 2, 3, 4])), []);
+    assert.deepEqual(buffer.push(new Uint8Array([5, 6, 7, 8, 9])).map((chunk) => [...chunk]), [[1, 2, 3, 4, 5, 6]]);
+    assert.deepEqual(buffer.flush().map((chunk) => [...chunk]), [[7, 8, 9]]);
+});
 
 class FakeSocket {
     static instance;
@@ -31,6 +39,7 @@ test("relay передаёт PCM в Simli в порядке поступлени
         url: "ws://test/api/chat/stream",
         sessionId: null,
         message: "Текст",
+        pcmChunkBytes: 2,
         simliClient: client,
         onSession: (value) => { sessionId = value; },
         onDelta: () => {},

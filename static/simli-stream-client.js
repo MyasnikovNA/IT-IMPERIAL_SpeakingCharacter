@@ -1,3 +1,34 @@
+/** Собирает произвольные PCM16 фреймы провайдера в стабильные блоки для Simli. */
+export class PcmChunkBuffer {
+    constructor(chunkBytes) {
+        if (!Number.isInteger(chunkBytes) || chunkBytes <= 0 || chunkBytes % 2 !== 0) {
+            throw new Error("PCM chunk size должен быть положительным чётным числом");
+        }
+        this.chunkBytes = chunkBytes;
+        this.pending = new Uint8Array(0);
+    }
+
+    push(pcm) {
+        const merged = new Uint8Array(this.pending.byteLength + pcm.byteLength);
+        merged.set(this.pending);
+        merged.set(pcm, this.pending.byteLength);
+        const chunks = [];
+        let offset = 0;
+        while (merged.byteLength - offset >= this.chunkBytes) {
+            chunks.push(merged.slice(offset, offset + this.chunkBytes));
+            offset += this.chunkBytes;
+        }
+        this.pending = merged.slice(offset);
+        return chunks;
+    }
+
+    flush() {
+        const tail = this.pending;
+        this.pending = new Uint8Array(0);
+        return tail.byteLength ? [tail] : [];
+    }
+}
+
 /** Открывает browser WebSocket и передаёт полученные PCM16 фреймы в Simli SDK. */
 export function openSimliStream({
     url,
@@ -11,6 +42,7 @@ export function openSimliStream({
     onDone,
     onMetrics,
     turnId,
+    pcmChunkBytes = 6000,
     WebSocketImpl = WebSocket
 }) {
 
@@ -22,6 +54,7 @@ export function openSimliStream({
         rejectCompletion = reject;
     });
     const socket = new WebSocketImpl(url);
+    const pcmBuffer = pcmChunkBytes === null ? null : new PcmChunkBuffer(pcmChunkBytes);
     socket.binaryType = "arraybuffer";
 
     const fail = (error) => {
@@ -47,6 +80,7 @@ export function openSimliStream({
                 fail(new Error(payload.error || "Ошибка потокового ответа"));
             } else if (payload.type === "done" && !settled) {
                 settled = true;
+                pcmBuffer?.flush().forEach((pcm) => simliClient.sendAudioData(pcm));
                 onDone(payload.sessionId);
                 resolveCompletion();
             }
@@ -58,7 +92,11 @@ export function openSimliStream({
             : await event.data.arrayBuffer();
         const pcm = new Uint8Array(buffer);
         onFirstPcm(pcm.byteLength);
-        simliClient.sendAudioData(pcm);
+        if (pcmBuffer) {
+            pcmBuffer.push(pcm).forEach((chunk) => simliClient.sendAudioData(chunk));
+        } else {
+            simliClient.sendAudioData(pcm);
+        }
     };
     socket.onerror = () => fail(new Error("WebSocket потокового чата недоступен"));
     socket.onclose = () => {
