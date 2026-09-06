@@ -22,9 +22,13 @@ const disconnectButton =
 const status =
     document.getElementById("status");
 
+const trainingScenario =
+    document.getElementById("training-scenario");
+
 
 let agentManager = null;
 let simliClient = null;
+let simliConnected = false;
 let streamRelay = null;
 let avatarSpeaking = false;
 let simliSessionStartedAt = null;
@@ -36,6 +40,63 @@ let interruptionTimer = null;
 let chatSessionId = null;
 let appConfig = null;
 const pageStartedAt = performance.now();
+const scenarioSelection = readScenarioSelection();
+
+/** Читает одноразовый сценарий, выбранный до создания новой сессии. */
+function readScenarioSelection() {
+
+    try {
+
+        const raw = sessionStorage.getItem("speaking-character.scenario-selection");
+        if (!raw) {
+            return null;
+        }
+
+        const selection = JSON.parse(raw);
+        const hasPreset = typeof selection.presetId === "string" && selection.presetId.length > 0;
+        const hasMarkdown = typeof selection.markdown === "string" && selection.markdown.length > 0;
+        if (hasPreset === hasMarkdown) {
+            sessionStorage.removeItem("speaking-character.scenario-selection");
+            return null;
+        }
+
+        if (hasMarkdown && selection.markdown.length > 32 * 1024) {
+            sessionStorage.removeItem("speaking-character.scenario-selection");
+            return null;
+        }
+
+        return hasPreset ? { presetId: selection.presetId } : { markdown: selection.markdown };
+
+    } catch {
+
+        sessionStorage.removeItem("speaking-character.scenario-selection");
+        return null;
+
+    }
+
+}
+
+/** Возвращает сценарий исключительно для первого хода новой тренировки. */
+function scenarioForNewSession() {
+
+    return chatSessionId === null ? scenarioSelection : null;
+
+}
+
+/** Показывает выбранный режим, не выводя содержимое пользовательского Markdown. */
+function renderScenarioLabel() {
+
+    if (!trainingScenario) {
+        return;
+    }
+
+    trainingScenario.textContent = scenarioSelection
+        ? scenarioSelection.presetId
+            ? `Сценарий: ${scenarioSelection.presetId}`
+            : "Сценарий: загруженный Markdown"
+        : "Свободный диалог";
+
+}
 
 /** Логирует измерение пользовательского пути без содержимого сообщений и секретов. */
 function logTiming(event, startedAt, details = {}) {
@@ -90,7 +151,7 @@ function interruptActiveTurn(config) {
         streamRelay.cancel();
         streamRelay = null;
     }
-    simliClient.ClearBuffer();
+    simliClient?.ClearBuffer();
     clearTimeout(interruptionTimer);
     interruptionTimer = window.setTimeout(() => {
         if (pendingInterruptedTurn === interruptedTurn) {
@@ -332,6 +393,7 @@ async function connect() {
 async function connectSimli(config, connectStartedAt) {
 
     setStatus("Подключение к Simli...");
+    simliConnected = false;
     const tokenStartedAt = performance.now();
     const response = await fetch(`${config.chat_api_url}/api/avatar/simli/session`, { method: "POST" });
     logTiming("simli_session_token_response", tokenStartedAt, { status: response.status });
@@ -355,6 +417,7 @@ async function connectSimli(config, connectStartedAt) {
         payload.transport
     );
     simliClient.on("start", () => {
+        simliConnected = true;
         simliSessionStartedAt = performance.now();
         logTiming("simli_start", connectStartedAt);
         setStatus("Аватар подключён");
@@ -393,10 +456,14 @@ async function connectSimli(config, connectStartedAt) {
         }
     });
     simliClient.on("ack", () => console.info("[timing]", { event: "simli_ack" }));
-    simliClient.on("startup_error", (error) => console.error("Simli startup error", error));
+    simliClient.on("stop", () => handleSimliTransportStopped("Сессия Simli завершилась из-за неактивности. Подключите аватара заново."));
+    simliClient.on("startup_error", (error) => {
+        console.error("Simli startup error", error);
+        handleSimliTransportStopped("Не удалось запустить Simli. Подключите аватара заново.");
+    });
     simliClient.on("error", (error) => {
         console.error("Simli error", error);
-        setStatus("Ошибка Simli");
+        handleSimliTransportStopped("Соединение с Simli потеряно. Подключите аватара заново.");
     });
 
     const startedAt = performance.now();
@@ -405,6 +472,33 @@ async function connectSimli(config, connectStartedAt) {
     logTiming("avatar_connect_total", connectStartedAt, { provider: "simli" });
     speakButton.disabled = false;
     disconnectButton.disabled = false;
+}
+
+/** Возвращает UI в состояние переподключения после idle timeout или ошибки Simli. */
+function handleSimliTransportStopped(message) {
+
+    if (!simliClient && !simliConnected) {
+        return;
+    }
+
+    simliConnected = false;
+    avatarSpeaking = false;
+    if (streamRelay) {
+        try {
+            streamRelay.cancel();
+        } catch (error) {
+            console.warn("Не удалось отменить завершённый поток Simli", error);
+        }
+        streamRelay = null;
+    }
+    simliClient = null;
+    video.srcObject = null;
+    audio.srcObject = null;
+    speakButton.disabled = true;
+    disconnectButton.disabled = true;
+    connectButton.disabled = false;
+    setStatus(message);
+
 }
 
 /** Запрашивает ответ LLM у Kotlin backend и передаёт его в D-ID. */
@@ -447,6 +541,10 @@ async function speak() {
 
         const config = await loadConfig();
         if (config.avatar_provider === "simli") {
+            if (!simliConnected || !simliClient) {
+                setStatus("Сессия Simli завершена. Сначала подключите аватара заново.");
+                return;
+            }
             interruptActiveTurn(config);
             await speakWithSimli(config, value, speakStartedAt);
             return;
@@ -457,7 +555,8 @@ async function speak() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 sessionId: chatSessionId,
-                message: value
+                message: value,
+                scenario: scenarioForNewSession()
             })
         });
 
@@ -531,6 +630,7 @@ async function speakWithSimli(config, message, speakStartedAt) {
         url: streamUrl(config.chat_api_url),
         sessionId: chatSessionId,
         message,
+        scenario: scenarioForNewSession(),
         simliClient,
         turnId: turn.turnId,
         onSession: (sessionId) => {
@@ -613,6 +713,7 @@ async function disconnect() {
                 });
             }
             simliClient = null;
+            simliConnected = false;
             simliSessionStartedAt = null;
             simliSpeakingStartedAt = null;
             simliSpeakingTotalMs = 0;
@@ -669,3 +770,5 @@ disconnectButton.addEventListener(
     "click",
     disconnect
 );
+
+renderScenarioLabel();

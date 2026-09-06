@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -42,25 +43,33 @@ class ElevenLabsStreamingTtsClient(
         var firstAudioLogged = false
         val startedAt = System.nanoTime()
 
+        val chunks = Channel<String>(Channel.BUFFERED)
+        val producer = launch {
+            try {
+                val buffer = WordSafeTextBuffer(config.streamMinChars)
+                textDeltas.collect { delta ->
+                    buffer.append(delta).forEach { chunks.send(it) }
+                }
+                buffer.finish().takeIf(String::isNotEmpty)?.let { chunks.send(it) }
+            } finally {
+                chunks.close()
+            }
+        }
+
         try {
+            // ElevenLabs закрывает idle WebSocket до первой пригодной части ответа Gemini.
+            // Подключаемся только после того, как word-safe буфер собрал текст для синтеза.
+            val firstChunk = chunks.receiveCatching().getOrNull() ?: return@channelFlow
             httpClient.webSocket(urlString = url) {
                 send(Frame.Text(json.encodeToString(JsonObject.serializer(), initialMessage(apiKey))))
+                sentCharacters += firstChunk.length
+                send(Frame.Text(json.encodeToString(JsonObject.serializer(), textMessage(firstChunk, false))))
                 val sender = launch {
-                    val buffer = WordSafeTextBuffer(config.streamMinChars)
-                    textDeltas.collect { delta ->
-                        buffer.append(delta).forEach { chunk ->
-                            sentCharacters += chunk.length
-                            send(Frame.Text(json.encodeToString(JsonObject.serializer(), textMessage(chunk, false))))
-                        }
+                    for (chunk in chunks) {
+                        sentCharacters += chunk.length
+                        send(Frame.Text(json.encodeToString(JsonObject.serializer(), textMessage(chunk, false))))
                     }
-                    val tail = buffer.finish()
-                    if (tail.isNotEmpty()) {
-                        sentCharacters += tail.length
-                        send(Frame.Text(json.encodeToString(JsonObject.serializer(), textMessage(tail, true))))
-                    } else {
-                        send(Frame.Text(json.encodeToString(JsonObject.serializer(), textMessage(" ", true))))
-                    }
-                    send(Frame.Text(json.encodeToString(JsonObject.serializer(), textMessage("", false))))
+                    send(Frame.Text(json.encodeToString(JsonObject.serializer(), textMessage("", true))))
                 }
                 for (frame in incoming) {
                     if (frame !is Frame.Text) continue
@@ -83,6 +92,7 @@ class ElevenLabsStreamingTtsClient(
         } catch (_: Exception) {
             throw ElevenLabsException("ElevenLabs streaming TTS failed")
         } finally {
+            producer.cancel()
             logger.info(
                 "tts_stream_completed durationMs={} characters={} pcmBytes={} firstAudio={}",
                 (System.nanoTime() - startedAt) / 1_000_000,
