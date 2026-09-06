@@ -624,8 +624,8 @@ function resolvePcmChunkBytes() {
     if (value === "raw") {
         return null;
     }
-    const parsed = Number(value || 6000);
-    return Number.isInteger(parsed) && parsed > 0 && parsed % 2 === 0 ? parsed : 6000;
+    const parsed = Number(value || 3000);
+    return Number.isInteger(parsed) && parsed > 0 && parsed % 2 === 0 ? parsed : 3000;
 
 }
 

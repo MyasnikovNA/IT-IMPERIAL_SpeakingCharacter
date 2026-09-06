@@ -42,7 +42,7 @@ export function openSimliStream({
     onDone,
     onMetrics,
     turnId,
-    pcmChunkBytes = 6000,
+    pcmChunkBytes = 3000,
     WebSocketImpl = WebSocket
 }) {
 
