@@ -16,6 +16,17 @@ load_dotenv()
 app = FastAPI()
 
 
+@app.middleware("http")
+async def disable_html_cache(request, call_next):
+    """Не даёт браузеру сочетать актуальные страницы со старым frontend-кешем."""
+
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("text/html"):
+        response.headers["cache-control"] = "no-store, max-age=0"
+    return response
+
+
 @app.get("/api/config")
 def config():
     """Возвращает публичную конфигурацию frontend без серверных секретов."""
