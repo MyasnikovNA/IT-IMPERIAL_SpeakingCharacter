@@ -28,6 +28,7 @@ const trainingScenario =
 
 let agentManager = null;
 let simliClient = null;
+let simliConnected = false;
 let streamRelay = null;
 let avatarSpeaking = false;
 let simliSessionStartedAt = null;
@@ -150,7 +151,7 @@ function interruptActiveTurn(config) {
         streamRelay.cancel();
         streamRelay = null;
     }
-    simliClient.ClearBuffer();
+    simliClient?.ClearBuffer();
     clearTimeout(interruptionTimer);
     interruptionTimer = window.setTimeout(() => {
         if (pendingInterruptedTurn === interruptedTurn) {
@@ -392,6 +393,7 @@ async function connect() {
 async function connectSimli(config, connectStartedAt) {
 
     setStatus("Подключение к Simli...");
+    simliConnected = false;
     const tokenStartedAt = performance.now();
     const response = await fetch(`${config.chat_api_url}/api/avatar/simli/session`, { method: "POST" });
     logTiming("simli_session_token_response", tokenStartedAt, { status: response.status });
@@ -415,6 +417,7 @@ async function connectSimli(config, connectStartedAt) {
         payload.transport
     );
     simliClient.on("start", () => {
+        simliConnected = true;
         simliSessionStartedAt = performance.now();
         logTiming("simli_start", connectStartedAt);
         setStatus("Аватар подключён");
@@ -453,10 +456,14 @@ async function connectSimli(config, connectStartedAt) {
         }
     });
     simliClient.on("ack", () => console.info("[timing]", { event: "simli_ack" }));
-    simliClient.on("startup_error", (error) => console.error("Simli startup error", error));
+    simliClient.on("stop", () => handleSimliTransportStopped("Сессия Simli завершилась из-за неактивности. Подключите аватара заново."));
+    simliClient.on("startup_error", (error) => {
+        console.error("Simli startup error", error);
+        handleSimliTransportStopped("Не удалось запустить Simli. Подключите аватара заново.");
+    });
     simliClient.on("error", (error) => {
         console.error("Simli error", error);
-        setStatus("Ошибка Simli");
+        handleSimliTransportStopped("Соединение с Simli потеряно. Подключите аватара заново.");
     });
 
     const startedAt = performance.now();
@@ -465,6 +472,33 @@ async function connectSimli(config, connectStartedAt) {
     logTiming("avatar_connect_total", connectStartedAt, { provider: "simli" });
     speakButton.disabled = false;
     disconnectButton.disabled = false;
+}
+
+/** Возвращает UI в состояние переподключения после idle timeout или ошибки Simli. */
+function handleSimliTransportStopped(message) {
+
+    if (!simliClient && !simliConnected) {
+        return;
+    }
+
+    simliConnected = false;
+    avatarSpeaking = false;
+    if (streamRelay) {
+        try {
+            streamRelay.cancel();
+        } catch (error) {
+            console.warn("Не удалось отменить завершённый поток Simli", error);
+        }
+        streamRelay = null;
+    }
+    simliClient = null;
+    video.srcObject = null;
+    audio.srcObject = null;
+    speakButton.disabled = true;
+    disconnectButton.disabled = true;
+    connectButton.disabled = false;
+    setStatus(message);
+
 }
 
 /** Запрашивает ответ LLM у Kotlin backend и передаёт его в D-ID. */
@@ -507,6 +541,10 @@ async function speak() {
 
         const config = await loadConfig();
         if (config.avatar_provider === "simli") {
+            if (!simliConnected || !simliClient) {
+                setStatus("Сессия Simli завершена. Сначала подключите аватара заново.");
+                return;
+            }
             interruptActiveTurn(config);
             await speakWithSimli(config, value, speakStartedAt);
             return;
@@ -675,6 +713,7 @@ async function disconnect() {
                 });
             }
             simliClient = null;
+            simliConnected = false;
             simliSessionStartedAt = null;
             simliSpeakingStartedAt = null;
             simliSpeakingTotalMs = 0;
