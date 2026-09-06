@@ -2,7 +2,7 @@
 
 Локальный прототип корпоративного AI-тренажёра. Сотрудник проходит тренировочный диалог с говорящим аватаром, а система сохраняет историю, управляет поколениями ответа и формирует итоговую оценку.
 
-Методист выбирает готовый сценарий или передаёт одноразовый Markdown-сценарий. Сотрудник общается с аватаром текстом. В режиме Simli ответ проходит потоково: Gemini → ElevenLabs → PCM16 → Simli, без публичного callback endpoint и передачи ключей в браузер.
+Методист выбирает готовый сценарий или передаёт одноразовый Markdown-сценарий. Сотрудник отвечает голосом через push-to-talk либо использует текстовый fallback. В режиме Simli ответ проходит потоково: Gemini → ElevenLabs → PCM16 → Simli, без публичного callback endpoint и передачи ключей в браузер.
 
 ## Возможности
 
@@ -11,6 +11,7 @@
 - потоковый Simli-путь: `WS /api/chat/stream`;
 - идентификатор поколения (`generationId`), отмена устаревшего ответа и отбрасывание поздних событий;
 - субтитры с alignment-метаданными PCM-фреймов;
+- realtime voice input через ElevenLabs Scribe v2: удержание кнопки, partial transcript и ручной commit при отпускании;
 - метрики `gemini_first_delta`, `tts_first_audio`, `browser_first_pcm`, `simli_speaking` и итоговые browser-метрики;
 - идемпотентное завершение тренировки и строгий итоговый report;
 - встроенные и одноразовые сценарии с неизменяемым snapshot внутри сессии.
@@ -21,6 +22,8 @@ Root Kotlin/Ktor backend на порту `8080` — единственный run
 
 ```text
 browser ── HTTP / WS ──> Kotlin/Ktor ──> Gemini SSE
+   │                         │
+   ├── single-use Scribe token ──> ElevenLabs Scribe Realtime ──> committed user text
    │                         │
    │                         ├── PostgreSQL: session aggregate, история, report
    │                         │
@@ -94,7 +97,7 @@ uv run --with-requirements requirements.txt uvicorn app:app --port 8000
 curl http://localhost:8080/health
 ```
 
-Откройте `http://localhost:8000`. Frontend получает только `AVATAR_PROVIDER`, `CHAT_API_URL` и, для D-ID, публичные browser credentials. Gemini, Simli и ElevenLabs keys остаются в `.env` и Kotlin backend.
+Откройте `http://localhost:8000`. Frontend получает только `AVATAR_PROVIDER`, `CHAT_API_URL`, безопасные параметры Scribe (`stt_enabled`, model, language) и, для D-ID, публичные browser credentials. Gemini, Simli и ElevenLabs keys остаются в `.env` и Kotlin backend.
 
 Текущий legacy D-ID frontend также читает публичные browser-значения из игнорируемых `agent_id.txt` и `client_key.txt`; Simli-режиму эти файлы не нужны.
 
@@ -120,6 +123,8 @@ SIMLI_TRANSPORT=livekit
 ELEVENLABS_API_KEY=...
 ELEVENLABS_VOICE_ID=...
 ELEVENLABS_MODEL=eleven_flash_v2_5
+SCRIBE_MODEL=scribe_v2_realtime
+SCRIBE_LANGUAGE_CODE=ru
 STREAM_MIN_CHARS=50
 ```
 
@@ -162,6 +167,17 @@ Content-Type: application/json
 
 Сервер последовательно отправляет `session`, `delta`, `audio_frame`, binary PCM16, `metrics` и `done`. При `{ "type": "cancel" }` backend отменяет текущие Gemini/TTS coroutine; браузер одновременно очищает буфер Simli через `ClearBuffer()`.
 
+### Голосовой ввод / Push-to-talk
+
+После подключения аватара браузер запрашивает доступ к микрофону и получает через `POST /api/stt/token` только одноразовый Scribe-токен. `ELEVENLABS_API_KEY` остаётся на Kotlin backend и никогда не попадает в browser bundle, storage или логи.
+Подключение Scribe выполняется независимо от Simli/D-ID: отказ или timeout распознавания не задерживает появление аватара и оставляет доступным текстовый fallback.
+
+1. Удерживайте кнопку «🎙 Удерживайте, чтобы говорить» — микрофон размьютится, а на экране появится partial transcript.
+2. Отпустите кнопку — микрофон мьютится и Scribe получает ручной commit.
+3. Только непустой committed transcript один раз передаётся в тот же chat/session pipeline, что и текст.
+
+Короткие случайные касания не создают turn, одна реплика ограничена 25 секундами, а зависший commit завершается ошибкой с возможностью повторного подключения. Во время ответа аватара нажатие PTT отменяет текущую Simli-генерацию до открытия микрофона; automatic VAD interruption пока не реализован. При ошибке прав доступа, quota или Scribe connection остаётся доступен раздел «Ввести текст вручную».
+
 ### Расширенный training protocol
 
 `POST /api/sessions` создаёт сессию и возвращает URL `WS /ws/training/{sessionId}`. Через этот протокол клиент явно передаёт `generationId`, `user_message`, `interrupt`, `metric` и `finish`.
@@ -187,11 +203,12 @@ Content-Type: application/json
 ./gradlew test
 ./gradlew build
 docker compose config
-node --test static/latency-monitor.test.mjs static/simli-stream-client.test.mjs
+npm run build:frontend
+npm run test:frontend
 ```
 
 Реальные smoke-тесты Gemini, ElevenLabs, Simli и D-ID выполняйте только с настроенными ключами. Они расходуют квоты соответствующих провайдеров.
 
 ## Ограничения MVP
 
-В MVP не входят голосовой ввод/STT/VAD, RAG, auth и промышленная многопользовательская нагрузка. На стартовом экране можно выбрать один из preset-сценариев, загрузить валидный `.md` до 32 КБ или начать свободный диалог. Выбор применяется только к новой тренировке и закрепляется после первой реплики.
+В MVP не входят automatic VAD turn detection, voice-activated interruption, RAG, auth и промышленная многопользовательская нагрузка. На стартовом экране можно выбрать один из preset-сценариев, загрузить валидный `.md` до 32 КБ или начать свободный диалог. Выбор применяется только к новой тренировке и закрепляется после первой реплики.
