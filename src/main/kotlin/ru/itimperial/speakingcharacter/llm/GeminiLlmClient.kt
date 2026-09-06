@@ -160,9 +160,6 @@ class GeminiLlmClient(
         put("generationConfig", buildJsonObject {
             put("temperature", JsonPrimitive(0.5))
             put("maxOutputTokens", JsonPrimitive(700))
-            put("thinkingConfig", buildJsonObject {
-                put("thinkingBudget", JsonPrimitive(0))
-            })
             if (jsonMode) {
                 put("responseMimeType", "application/json")
             }

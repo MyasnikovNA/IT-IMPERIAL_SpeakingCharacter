@@ -2,6 +2,7 @@ package ru.itimperial.speakingcharacter.di
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.websocket.WebSockets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.Json
@@ -37,6 +38,11 @@ fun appModule(config: AppConfig) = module {
     single {
         HttpClient(CIO) {
             expectSuccess = false
+            install(HttpTimeout) {
+                connectTimeoutMillis = 10_000
+                requestTimeoutMillis = 90_000
+                socketTimeoutMillis = 90_000
+            }
             install(WebSockets)
         }
     }
