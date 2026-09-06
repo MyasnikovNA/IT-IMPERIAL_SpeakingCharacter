@@ -32,4 +32,21 @@ class AppConfigTest {
             )
         }
     }
+
+    @Test
+    fun `uses Russian Scribe by default`() {
+        val config = AppConfig.fromEnvironment(mapOf("GEMINI_API_KEY" to "key"))
+
+        assertEquals("scribe_v2_realtime", config.scribeModel)
+        assertEquals("ru", config.scribeLanguageCode)
+    }
+
+    @Test
+    fun `allows automatic Scribe language detection when language is blank`() {
+        val config = AppConfig.fromEnvironment(
+            mapOf("GEMINI_API_KEY" to "key", "SCRIBE_LANGUAGE_CODE" to "   "),
+        )
+
+        assertEquals(null, config.scribeLanguageCode)
+    }
 }

@@ -21,7 +21,14 @@ data class FrontendConfig(
     @SerialName("chat_api_url") val chatApiUrl: String,
     @SerialName("agent_id") val agentId: String? = null,
     @SerialName("client_key") val clientKey: String? = null,
+    @SerialName("stt_enabled") val sttEnabled: Boolean = false,
+    @SerialName("scribe_model") val scribeModel: String? = null,
+    @SerialName("scribe_language_code") val scribeLanguageCode: String? = null,
 )
+
+/** Возвращает одноразовый токен ElevenLabs Scribe без раскрытия server-side ключа. */
+@Serializable
+data class ScribeTokenResponse(val token: String)
 
 @Serializable
 data class InterruptRequest(

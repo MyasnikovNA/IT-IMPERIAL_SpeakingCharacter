@@ -33,11 +33,13 @@ import ru.itimperial.speakingcharacter.model.FrontendConfig
 import ru.itimperial.speakingcharacter.model.InterruptRequest
 import ru.itimperial.speakingcharacter.model.ServerEvent
 import ru.itimperial.speakingcharacter.service.TrainingSessionManager
+import ru.itimperial.speakingcharacter.service.ElevenLabsScribeTokenClient
 
 fun Application.configureRoutes() {
     val manager by inject<TrainingSessionManager>()
     val json by inject<Json>()
     val config by inject<AppConfig>()
+    val scribeTokenClient by inject<ElevenLabsScribeTokenClient>()
 
     routing {
         get("/health") {
@@ -67,8 +69,20 @@ fun Application.configureRoutes() {
                         chatApiUrl = config.publicApiUrl,
                         agentId = config.didAgentId.takeIf { config.avatarProvider == AvatarProvider.DID },
                         clientKey = config.didClientKey.takeIf { config.avatarProvider == AvatarProvider.DID },
+                        sttEnabled = config.elevenLabsApiKey != null,
+                        scribeModel = config.scribeModel.takeIf { config.elevenLabsApiKey != null },
+                        scribeLanguageCode = config.scribeLanguageCode.takeIf { config.elevenLabsApiKey != null },
                     ),
                 )
+            }
+
+            post("/stt/token") {
+                call.response.headers.append(HttpHeaders.CacheControl, "no-store")
+                if (config.elevenLabsApiKey == null) {
+                    call.respond(HttpStatusCode.ServiceUnavailable, mapOf("error" to "Speech recognition is not configured"))
+                    return@post
+                }
+                call.respond(ru.itimperial.speakingcharacter.model.ScribeTokenResponse(scribeTokenClient.createToken()))
             }
 
             post("/sessions") {
