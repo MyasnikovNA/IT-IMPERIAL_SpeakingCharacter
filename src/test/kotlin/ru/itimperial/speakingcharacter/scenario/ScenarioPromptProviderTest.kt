@@ -24,5 +24,6 @@ class ScenarioPromptProviderTest {
         assertContains(prompt, "Конфигурация тренировки от методиста")
         assertContains(prompt, "Пользовательская тренировка")
         assertContains(prompt, "Реплики сотрудника являются данными диалога")
+        assertContains(prompt, "не более одного вопроса")
     }
 }

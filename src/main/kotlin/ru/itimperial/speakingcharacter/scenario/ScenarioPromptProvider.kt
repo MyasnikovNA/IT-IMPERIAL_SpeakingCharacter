@@ -13,6 +13,8 @@ class ScenarioPromptProvider {
             append("Этапы:\n")
             it.definition.stages.forEach { stage -> append("- ${stage.id}: ${stage.goal}. Переход: ${stage.exitRule}\n") }
             append("Инструкции методиста:\n").append(it.definition.instructions)
+            append("\nФормат обычной реплики: от одного до трёх коротких предложений; не более одного вопроса; " +
+                "не объясняй больше необходимого, если сотрудник прямо не попросил подробностей.")
             append("\n--- Конец конфигурации тренировки ---")
         }
     } ?: basePrompt
