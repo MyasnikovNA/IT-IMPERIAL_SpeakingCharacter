@@ -32,6 +32,10 @@ const finishButton = document.getElementById("finish-training");
 const finishModal = document.getElementById("finish-modal");
 const cancelFinishButton = document.getElementById("cancel-finish");
 const confirmFinishButton = document.getElementById("confirm-finish");
+const finishRecovery = document.getElementById("finish-recovery");
+const finishRecoveryMessage = document.getElementById("finish-recovery-message");
+const checkFinishResultButton = document.getElementById("check-finish-result");
+const retryFinishButton = document.getElementById("retry-finish");
 
 
 let agentManager = null;
@@ -48,6 +52,7 @@ let interruptionTimer = null;
 let chatSessionId = null;
 let appConfig = null;
 let trainingFinishing = false;
+let realtimeShuttingDown = false;
 let currentAssistantText = "";
 const pageStartedAt = performance.now();
 const scenarioSelection = readScenarioSelection();
@@ -305,6 +310,8 @@ async function connect() {
              */
             onConnectionStateChange(state) {
 
+                if (trainingFinishing || realtimeShuttingDown) return;
+
                 console.log(
                     "Connection:",
                     state
@@ -339,6 +346,8 @@ async function connect() {
              * @param {unknown} errorData Дополнительные данные ошибки.
              */
             onError(error, errorData) {
+
+                if (trainingFinishing || realtimeShuttingDown) return;
 
                 console.error(
                     "D-ID error:",
@@ -461,12 +470,14 @@ async function connectSimli(config, connectStartedAt, sttPreconnection) {
         payload.transport
     );
     simliClient.on("start", () => {
+        if (trainingFinishing || realtimeShuttingDown) return;
         simliConnected = true;
         simliSessionStartedAt = performance.now();
         logTiming("simli_start", connectStartedAt);
         setStatus("Аватар подключён");
     });
     simliClient.on("speaking", () => {
+        if (trainingFinishing || realtimeShuttingDown) return;
         avatarSpeaking = true;
         simliSpeakingStartedAt = performance.now();
         if (activeLatencyTurn) {
@@ -476,6 +487,7 @@ async function connectSimli(config, connectStartedAt, sttPreconnection) {
         setStatus("Аватар говорит...");
     });
     simliClient.on("silent", () => {
+        if (trainingFinishing || realtimeShuttingDown) return;
         avatarSpeaking = false;
         if (simliSpeakingStartedAt) {
             simliSpeakingTotalMs += performance.now() - simliSpeakingStartedAt;
@@ -523,6 +535,10 @@ async function connectSimli(config, connectStartedAt, sttPreconnection) {
 
 /** Возвращает UI в состояние переподключения после idle timeout или ошибки Simli. */
 function handleSimliTransportStopped(message) {
+
+    if (trainingFinishing || realtimeShuttingDown) {
+        return;
+    }
 
     if (!simliClient && !simliConnected) {
         return;
@@ -796,72 +812,49 @@ async function speakWithSimli(config, message, speakStartedAt) {
     }, 3_000);
 }
 
-/** Отключает текущий avatar transport и отменяет незавершённый поток речи. */
-async function disconnect() {
-
-    if (!agentManager && !simliClient) {
-
-        return;
-
-    }
-
-
+/** Закрывает transport, media и Scribe; используется и Disconnect, и terminal Finish. */
+async function shutdownRealtimeMedia({ updateUi = true, finalStatus = null } = {}) {
+    realtimeShuttingDown = true;
     try {
-
         if (streamRelay) {
-            streamRelay.cancel();
+            try { streamRelay.cancel(); } catch (error) { console.warn("Не удалось отменить поток", error); }
             streamRelay = null;
         }
-
+        try { simliClient?.ClearBuffer?.(); } catch (error) { console.warn("Не удалось очистить Simli buffer", error); }
         if (simliClient) {
-            simliClient.ClearBuffer();
-            await simliClient.stop();
-            if (simliSessionStartedAt) {
-                logTiming("simli_session_closed", simliSessionStartedAt, {
-                    speakingTotalMs: Math.round(simliSpeakingTotalMs)
-                });
-            }
-            simliClient = null;
-            simliConnected = false;
-            simliSessionStartedAt = null;
-            simliSpeakingStartedAt = null;
-            simliSpeakingTotalMs = 0;
-            audio.srcObject = null;
+            try { await simliClient.stop(); } catch (error) { console.warn("Не удалось штатно остановить Simli", error); }
+            if (simliSessionStartedAt) logTiming("simli_session_closed", simliSessionStartedAt, { speakingTotalMs: Math.round(simliSpeakingTotalMs) });
         }
-
         if (agentManager) {
-            await agentManager.disconnect();
+            try { await agentManager.disconnect(); } catch (error) { console.warn("Не удалось штатно отключить D-ID", error); }
         }
-
+    } finally {
+        simliClient = null;
+        simliConnected = false;
+        agentManager = null;
+        avatarSpeaking = false;
+        simliSessionStartedAt = null;
+        simliSpeakingStartedAt = null;
+        simliSpeakingTotalMs = 0;
+        pushToTalk.disconnect();
+        try { video.pause(); } catch (_) { /* media may not be initialized */ }
+        try { audio.pause(); } catch (_) { /* media may not be initialized */ }
+        video.srcObject = null;
+        audio.srcObject = null;
+        realtimeShuttingDown = false;
     }
-    catch (error) {
-
-        console.error(error);
-
+    if (updateUi) {
+        speakButton.disabled = true;
+        disconnectButton.disabled = true;
+        connectButton.disabled = false;
+        if (finalStatus) setStatus(finalStatus);
     }
+}
 
-
-    agentManager = null;
-
-    pushToTalk.disconnect();
-
-    video.srcObject = null;
-
-
-    speakButton.disabled =
-        true;
-
-    disconnectButton.disabled =
-        true;
-
-    connectButton.disabled =
-        false;
-
-
-    setStatus(
-        "Отключено"
-    );
-
+/** Отключает текущий avatar transport и отменяет незавершённый поток речи. */
+async function disconnect() {
+    if (trainingFinishing) return;
+    await shutdownRealtimeMedia({ updateUi: true, finalStatus: "Отключено" });
 }
 
 /** Открывает confirmation modal перед необратимым завершением сессии. */
@@ -877,28 +870,76 @@ function closeFinishModal() {
     finishButton.focus();
 }
 
-/** Завершает разговор, затем переводит пользователя к сохранённому report flow. */
+/** Блокирует conversational controls после подтверждённого terminal Finish. */
+function lockFinishedTrainingUi() {
+    finishButton.disabled = true;
+    pushToTalkButton.disabled = true;
+    speakButton.disabled = true;
+    connectButton.disabled = true;
+    disconnectButton.disabled = true;
+}
+
+/** Показывает безопасное восстановление при потере response после idempotent Finish. */
+function showFinishRecovery(message) {
+    finishRecoveryMessage.textContent = message;
+    finishRecovery.hidden = false;
+    checkFinishResultButton.disabled = false;
+    retryFinishButton.disabled = false;
+}
+
+/** Запрашивает terminal finish и переходит к результату при успешном подтверждении. */
+async function requestFinish() {
+    const response = await fetch(`${appConfig.chat_api_url}/api/sessions/${chatSessionId}/finish`, { method: "POST" });
+    if (!response.ok) throw new Error(response.status === 404 ? "Тренировка не найдена." : "Не удалось завершить тренировку.");
+    window.location.assign(`/report.html?sessionId=${encodeURIComponent(chatSessionId)}`);
+}
+
+/** Завершает разговор, закрывает media до evaluation и не возвращает сессию в ACTIVE UX. */
 async function finishTraining() {
     if (!chatSessionId || trainingFinishing) return;
     trainingFinishing = true;
     closeFinishModal();
-    updateFinishAvailability();
+    finishRecovery.hidden = true;
+    lockFinishedTrainingUi();
     setStatus("✓ Тренировка завершена. Формируем обратную связь…");
-    pushToTalk.disconnect();
-    if (streamRelay) {
-        try { streamRelay.cancel(); } catch (_) { /* завершение должно продолжиться */ }
-        streamRelay = null;
-    }
-    try { simliClient?.ClearBuffer?.(); } catch (_) { /* best effort */ }
+    await shutdownRealtimeMedia({ updateUi: false });
     try {
-        const response = await fetch(`${appConfig.chat_api_url}/api/sessions/${chatSessionId}/finish`, { method: "POST" });
-        if (!response.ok) throw new Error("Не удалось завершить тренировку");
-        window.location.assign(`/report.html?sessionId=${encodeURIComponent(chatSessionId)}`);
+        await requestFinish();
     } catch (error) {
-        trainingFinishing = false;
-        updateFinishAvailability();
-        setStatus("Не удалось завершить тренировку. Попробуйте ещё раз.");
         console.error(error);
+        setStatus("Не удалось получить подтверждение от сервера.");
+        showFinishRecovery("Тренировка уже закрыта в этом окне. Проверьте результат или повторите безопасный запрос завершения.");
+    }
+}
+
+/** Проверяет сохранённое terminal state, не открывая обратно разговор. */
+async function checkFinishResult() {
+    checkFinishResultButton.disabled = true;
+    try {
+        const response = await fetch(`${appConfig.chat_api_url}/api/sessions/${chatSessionId}/result`);
+        if (!response.ok) throw new Error("Результат пока недоступен.");
+        const session = await response.json();
+        if (session.status === "FINISHED") {
+            window.location.assign(`/report.html?sessionId=${encodeURIComponent(chatSessionId)}`);
+            return;
+        }
+        showFinishRecovery("Сервер ещё не подтвердил завершение. Повторите безопасный запрос.");
+    } catch (error) {
+        showFinishRecovery(error.message || "Не удалось проверить результат.");
+    } finally {
+        checkFinishResultButton.disabled = false;
+    }
+}
+
+/** Повторяет идемпотентный finish, сохраняя выключенные media и controls. */
+async function retryFinish() {
+    retryFinishButton.disabled = true;
+    try {
+        await requestFinish();
+    } catch (error) {
+        showFinishRecovery(error.message || "Не удалось повторить завершение.");
+    } finally {
+        retryFinishButton.disabled = false;
     }
 }
 
@@ -923,6 +964,8 @@ disconnectButton.addEventListener(
 finishButton.addEventListener("click", openFinishModal);
 cancelFinishButton.addEventListener("click", closeFinishModal);
 confirmFinishButton.addEventListener("click", finishTraining);
+checkFinishResultButton.addEventListener("click", checkFinishResult);
+retryFinishButton.addEventListener("click", retryFinish);
 finishModal.addEventListener("click", (event) => {
     if (event.target.dataset.closeFinishModal !== undefined) closeFinishModal();
 });

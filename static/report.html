@@ -14,7 +14,11 @@
         <p class="report-label">Результат тренировки</p>
         <h1 id="report-title">Загружаем результат…</h1>
         <p id="report-date" class="training-mode"></p>
-        <section id="report-loading" class="report-state"><strong>✓ Тренировка завершена</strong><p>Формируем обратную связь по критериям сценария.</p></section>
+        <section id="report-loading" class="report-state" aria-live="polite">
+            <strong id="report-loading-title">✓ Тренировка завершена</strong>
+            <p id="report-loading-message">Формируем обратную связь по критериям сценария.</p>
+            <button id="report-refresh" class="secondary-button" hidden>Проверить статус</button>
+        </section>
         <section id="report-failure" class="report-state report-state--failure" hidden><strong>✓ Тренировка сохранена</strong><p id="report-error">Не удалось сформировать оценку.</p><button id="retry-report">Повторить формирование отчёта</button></section>
         <section id="report-content" hidden>
             <div class="score-hero"><span id="overall-score">—</span><small>/ 5</small><p>Итоговая оценка</p></div>
@@ -37,6 +41,6 @@
         </div>
     </section>
 </main>
-<script type="module" src="/report.js?v=1"></script>
+<script type="module" src="/report.js?v=2"></script>
 </body>
 </html>
