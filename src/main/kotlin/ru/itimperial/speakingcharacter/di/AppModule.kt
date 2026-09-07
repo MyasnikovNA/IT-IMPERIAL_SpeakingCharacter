@@ -62,6 +62,9 @@ fun appModule(config: AppConfig) = module {
             apiKey = get<AppConfig>().geminiApiKey,
             model = get<AppConfig>().geminiModel,
             fallbackModels = get<AppConfig>().geminiFallbackModels,
+            thinkingLevel = get<AppConfig>().geminiThinkingLevel,
+            evaluationThinkingLevel = get<AppConfig>().geminiEvaluationThinkingLevel,
+            firstDeltaTimeoutMillis = get<AppConfig>().geminiFirstDeltaTimeoutMillis,
         )
     }
     single<StreamingTtsClient> { ElevenLabsStreamingTtsClient(get(), get()) }

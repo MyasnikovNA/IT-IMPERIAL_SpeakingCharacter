@@ -36,6 +36,9 @@ data class AppConfig(
     val trainingCriteria: String?,
     val publicApiUrl: String = "http://localhost:8080",
     val geminiFallbackModels: List<String> = emptyList(),
+    val geminiThinkingLevel: String = "minimal",
+    val geminiEvaluationThinkingLevel: String = "medium",
+    val geminiFirstDeltaTimeoutMillis: Long = 3_000,
     val maxContextMessages: Int = 20,
     val avatarProvider: AvatarProvider = AvatarProvider.DID,
     val simliApiKey: String? = null,
@@ -94,14 +97,17 @@ data class AppConfig(
                 publicApiUrl = (env.optional("PUBLIC_API_URL")
                     ?: env.valueOrDefault("CHAT_API_URL", "http://localhost:8080")).trimEnd('/'),
                 geminiApiKey = geminiApiKey,
-                geminiModel = env.valueOrDefault("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+                geminiModel = env.valueOrDefault("GEMINI_MODEL", "gemini-3.5-flash-lite"),
                 geminiFallbackModels = env.valueOrDefault(
                     "GEMINI_MODEL_FALLBACKS",
-                    "gemini-3.5-flash-lite,gemini-3.5-flash",
+                    "gemini-3.1-flash-lite,gemini-2.5-flash-lite",
                 )
                     .split(',')
                     .map(String::trim)
                     .filter(String::isNotEmpty),
+                geminiThinkingLevel = env.thinkingLevel("GEMINI_THINKING_LEVEL", "minimal"),
+                geminiEvaluationThinkingLevel = env.thinkingLevel("GEMINI_EVALUATION_THINKING_LEVEL", "medium"),
+                geminiFirstDeltaTimeoutMillis = env.positiveLong("GEMINI_FIRST_DELTA_TIMEOUT_MS", 3_000),
                 maxContextMessages = maxContextMessages,
                 didAgentId = env.optional("DID_AGENT_ID"),
                 didClientKey = env.optional("DID_CLIENT_KEY"),
@@ -151,6 +157,18 @@ data class AppConfig(
 
         private fun Map<String, String>.positiveInt(name: String, default: Int): Int =
             (this[name]?.toIntOrNull() ?: default).also { require(it > 0) { "$name must be a positive integer" } }
+
+        /** Валидирует поддерживаемый Gemini уровень reasoning без передачи произвольной строки в API. */
+        private fun Map<String, String>.thinkingLevel(name: String, default: String): String =
+            valueOrDefault(name, default).also { level ->
+                require(level in setOf("minimal", "low", "medium", "high")) {
+                    "$name must be minimal, low, medium or high"
+                }
+            }
+
+        /** Читает положительный миллисекундный timeout для realtime first-token path. */
+        private fun Map<String, String>.positiveLong(name: String, default: Long): Long =
+            (this[name]?.toLongOrNull() ?: default).also { require(it > 0) { "$name must be a positive integer" } }
 
         private const val DEFAULT_TRAINING_PROMPT =
             "Ты корпоративный AI-тренер. Веди диалог строго по заданному сценарию, " +

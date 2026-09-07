@@ -11,6 +11,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
@@ -38,6 +40,9 @@ class GeminiLlmClient(
     private val apiKey: String,
     private val model: String,
     private val fallbackModels: List<String> = emptyList(),
+    private val thinkingLevel: String = "minimal",
+    private val evaluationThinkingLevel: String = "medium",
+    private val firstDeltaTimeoutMillis: Long = 3_000,
 ) : LlmClient {
     private val logger = LoggerFactory.getLogger(GeminiLlmClient::class.java)
 
@@ -82,6 +87,15 @@ class GeminiLlmClient(
                     emit(chunk)
                 }
                 return@flow
+            } catch (e: TimeoutCancellationException) {
+                lastFailure = e
+                if (index == models.lastIndex) throw e
+                logger.warn(
+                    "gemini_first_delta_timeout failedModel={} nextModel={} timeoutMs={}",
+                    candidateModel,
+                    models[index + 1],
+                    firstDeltaTimeoutMillis,
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -99,6 +113,13 @@ class GeminiLlmClient(
         throw lastFailure ?: IllegalStateException("Gemini generation failed")
     }
 
+    /**
+     * Запрашивает SSE и ограничивает ожидание именно первого текстового delta.
+     *
+     * После первого слова timeout больше не применяется: длинная, но уже начавшаяся
+     * реплика не должна быть оборвана. Timeout до первого текста позволяет перейти
+     * на fallback до того, как пользователь услышит затянувшуюся паузу.
+     */
     private fun requestStream(candidateModel: String, body: JsonObject): Flow<String> = flow {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$candidateModel:streamGenerateContent?alt=sse"
         httpClient.preparePost(url) {
@@ -112,25 +133,40 @@ class GeminiLlmClient(
             }
 
             val channel = response.bodyAsChannel()
+            val firstChunks = withTimeout(firstDeltaTimeoutMillis) {
+                readNextTextChunks(channel)
+            }
+            check(firstChunks.isNotEmpty()) { "Gemini stream closed before the first text delta" }
+            for (chunk in firstChunks) {
+                emit(chunk)
+            }
+
             while (!channel.isClosedForRead) {
-                val line = channel.readUTF8Line() ?: break
-                if (!line.startsWith("data:")) continue
-                val payload = line.removePrefix("data:").trim()
-                if (payload.isEmpty() || payload == "[DONE]") continue
-
-                val element = try {
-                    json.parseToJsonElement(payload)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    continue
-                }
-
-                extractText(element).forEach { chunk ->
-                    if (chunk.isNotEmpty()) emit(chunk)
+                for (chunk in readNextTextChunks(channel)) {
+                    emit(chunk)
                 }
             }
         }
+    }
+
+    /** Читает SSE до следующего непустого текстового delta либо до закрытия канала. */
+    private suspend fun readNextTextChunks(channel: io.ktor.utils.io.ByteReadChannel): List<String> {
+        while (!channel.isClosedForRead) {
+            val line = channel.readUTF8Line() ?: return emptyList()
+            if (!line.startsWith("data:")) continue
+            val payload = line.removePrefix("data:").trim()
+            if (payload.isEmpty() || payload == "[DONE]") continue
+            val element = try {
+                json.parseToJsonElement(payload)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                continue
+            }
+            val chunks = extractText(element).filter(String::isNotEmpty)
+            if (chunks.isNotEmpty()) return chunks
+        }
+        return emptyList()
     }
 
     private fun requestBody(
@@ -168,6 +204,9 @@ class GeminiLlmClient(
         put("generationConfig", buildJsonObject {
             put("temperature", JsonPrimitive(0.5))
             put("maxOutputTokens", JsonPrimitive(if (jsonMode) 800 else 200))
+            put("thinkingConfig", buildJsonObject {
+                put("thinkingLevel", if (jsonMode) evaluationThinkingLevel else thinkingLevel)
+            })
             if (jsonMode) {
                 put("responseMimeType", "application/json")
             }
