@@ -93,7 +93,7 @@ if ! $SKIP_BUILD; then
   run_gate gradle_build ./gradlew build || gate_failed=true
   run_gate frontend_test npm run test:frontend || gate_failed=true
   run_gate frontend_build npm run build:frontend || gate_failed=true
-  run_gate acceptance_report_test python3 -m unittest scripts/test_acceptance_report.py || gate_failed=true
+  run_gate acceptance_report_test python3 -m unittest scripts/test_acceptance_report.py scripts/test_dotenv_exec.py || gate_failed=true
   run_gate javascript_syntax node --check static/app.js || gate_failed=true
   run_gate simli_stream_syntax node --check static/simli-stream-client.js || gate_failed=true
   run_gate git_diff_check git diff --check || gate_failed=true
