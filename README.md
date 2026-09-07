@@ -204,6 +204,8 @@ Content-Type: application/json
 - ElevenLabs получает word-safe чанки текста и отдаёт PCM16 16 kHz;
 - `simli_speaking` — диагностический proxy, а не доказательство lip-sync SLO: SDK не предоставляет timestamps видео-кадров.
 
+Перед защитой используйте [acceptance-чек-лист](./docs/demo-acceptance.md): пять фиксированных диалогов, реальные значения first-audio/interrupt и ручная offline-проверка lip-sync при 60 fps.
+
 Целевые продуктовые SLO:
 
 - первый звук — до 3 секунд после отправки реплики;
