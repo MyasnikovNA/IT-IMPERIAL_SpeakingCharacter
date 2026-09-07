@@ -100,8 +100,8 @@ if ! $SKIP_BUILD; then
   if $gate_failed && ! $CONTINUE_ON_TEST_FAILURE; then fail "Build/test gate failed; exact failed command is above"; fi
 fi
 
-echo "Starting runner-owned backend and frontend."
-python3 scripts/dotenv_exec.py .env -- ./gradlew run >"$RUN_DIR/backend.log" 2>&1 & BACKEND_PID=$!
+echo "Starting runner-owned backend and frontend with isolated file session storage."
+python3 scripts/dotenv_exec.py .env --override STORAGE_BACKEND=file --override DATA_DIR="$RUN_DIR/data" -- ./gradlew run >"$RUN_DIR/backend.log" 2>&1 & BACKEND_PID=$!
 python3 scripts/dotenv_exec.py .env -- uv run --with-requirements requirements.txt uvicorn app:app --port 8000 >"$RUN_DIR/frontend.log" 2>&1 & FRONTEND_PID=$!
 wait_http() {
   local url="$1" label="$2"
