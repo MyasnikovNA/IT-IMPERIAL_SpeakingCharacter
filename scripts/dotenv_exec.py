@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -21,6 +22,10 @@ def load(path: Path) -> dict[str, str]:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
+        else:
+            # Docker Compose / dotenv допускают комментарий после пробела. Это
+            # особенно важно для UUID: комментарий не должен попасть в API.
+            value = re.split(r"\s+#", value, maxsplit=1)[0].rstrip()
         values[key] = value
     return values
 
