@@ -68,8 +68,13 @@ class SimliSessionTokenClient(
     }
 
     /** Обрезает и маскирует provider detail, чтобы диагностика не попадала в логи вместе с ключом. */
-    private fun redactProviderDetail(raw: String, apiKey: String): String = raw
+    /** Маскирует JSON-поля с ключами и токенами до передачи provider detail в лог. */
+    internal fun redactProviderDetail(raw: String, apiKey: String): String = raw
         .replace(apiKey, "[REDACTED]")
+        .replace(
+            Regex("(?i)(\\\"[^\\\"]*(?:api[_ -]?key|token|secret)[^\\\"]*\\\"\\s*:\\s*)\\\"[^\\\"]*\\\""),
+            "$1\"[REDACTED]\"",
+        )
         .replace(Regex("(?i)(api[_ -]?key|token|secret)\\s*[:=]\\s*[^,}\\s]+"), "$1=[REDACTED]")
         .replace(Regex("[\\r\\n]+"), " ")
         .take(MAX_PROVIDER_DETAIL_LENGTH)
