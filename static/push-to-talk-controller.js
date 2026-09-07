@@ -36,7 +36,7 @@ export function createPushToTalkController({
         onCommitted: async (value, meta) => {
             transcriptElement.textContent = value;
             if (meta.maxDuration) setStatus("Реплика достигла максимальной длины и отправлена.");
-            await submit(value, { source: "voice" });
+            await submit(value, { source: "voice", releasedAt: meta.releasedAt });
         },
         onStateChange: (state) => render(state),
         onError: (message) => setStatus(message),

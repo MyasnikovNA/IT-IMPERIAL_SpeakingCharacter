@@ -40,6 +40,9 @@ export function buildLatencyReport(turn, outcome) {
     if (interruption !== undefined) {
         metrics.interruption_to_silent_ms = interruption;
     }
+    if (turn.voiceInput && firstAudio !== undefined) {
+        metrics.voice_end_to_first_audio_ms = firstAudio;
+    }
 
     return {
         turnId: turn.turnId,
@@ -52,6 +55,23 @@ export function buildLatencyReport(turn, outcome) {
         diagnostics: {
             simli_transport_proxy_within_200ms: sync !== undefined && sync <= latencyTargets.simliTransportProxyMs
         }
+    };
+}
+
+/** Агрегирует измерения одинаковой метрики для честного demo summary без выдуманных чисел. */
+export function summarizeMetric(reports, metricName, thresholdMs) {
+    const values = reports
+        .map((report) => report?.metrics?.[metricName])
+        .filter((value) => Number.isFinite(value))
+        .sort((left, right) => left - right);
+    if (values.length === 0) return { count: 0, median: null, p95: null, max: null, passRate: null };
+    const percentile = (ratio) => values[Math.min(values.length - 1, Math.ceil(values.length * ratio) - 1)];
+    return {
+        count: values.length,
+        median: percentile(0.5),
+        p95: percentile(0.95),
+        max: values.at(-1),
+        passRate: Math.round(values.filter((value) => value <= thresholdMs).length / values.length * 100)
     };
 }
 

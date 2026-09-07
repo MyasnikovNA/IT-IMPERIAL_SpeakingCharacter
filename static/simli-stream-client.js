@@ -41,6 +41,7 @@ export function openSimliStream({
     onFirstPcm,
     onDone,
     onMetrics,
+    isActive = () => true,
     turnId,
     pcmChunkBytes = 3000,
     WebSocketImpl = WebSocket
@@ -65,20 +66,23 @@ export function openSimliStream({
     };
 
     socket.onopen = () => {
+        if (!isActive()) return;
         socket.send(JSON.stringify({ type: "start", sessionId, message, scenario, turnId }));
     };
     socket.onmessage = async (event) => {
+        if (!isActive()) return;
         if (typeof event.data === "string") {
             const payload = JSON.parse(event.data);
             if (payload.type === "session") {
-                onSession(payload.sessionId);
+                if (isActive()) onSession(payload.sessionId);
             } else if (payload.type === "delta") {
-                onDelta(payload.delta || "");
+                if (isActive()) onDelta(payload.delta || "");
             } else if (payload.type === "metrics") {
-                onMetrics(payload);
+                if (isActive()) onMetrics(payload);
             } else if (payload.type === "error") {
                 fail(new Error(payload.error || "Ошибка потокового ответа"));
             } else if (payload.type === "done" && !settled) {
+                if (!isActive()) return;
                 settled = true;
                 pcmBuffer?.flush().forEach((pcm) => simliClient.sendAudioData(pcm));
                 onDone(payload.sessionId);
@@ -90,6 +94,7 @@ export function openSimliStream({
         const buffer = event.data instanceof ArrayBuffer
             ? event.data
             : await event.data.arrayBuffer();
+        if (!isActive()) return;
         const pcm = new Uint8Array(buffer);
         onFirstPcm(pcm.byteLength);
         if (pcmBuffer) {
@@ -100,6 +105,7 @@ export function openSimliStream({
     };
     socket.onerror = () => fail(new Error("WebSocket потокового чата недоступен"));
     socket.onclose = () => {
+        if (!isActive()) return;
         if (!settled) {
             fail(new Error("Потоковый чат был закрыт до завершения"));
         }

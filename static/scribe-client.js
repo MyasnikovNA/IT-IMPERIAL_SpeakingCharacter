@@ -399,7 +399,11 @@ export class PushToTalkTranscriber {
             voiceTurnDurationMs: Math.round(this.now() - this.pressStartedAt)
         });
         this.#setState(VoiceState.READY);
-        Promise.resolve(this.onCommitted(transcript, { maxDuration: pending.maxDuration, turnId: pending.turnId }))
+        Promise.resolve(this.onCommitted(transcript, {
+            maxDuration: pending.maxDuration,
+            turnId: pending.turnId,
+            releasedAt: pending.releasedAt
+        }))
             .catch((error) => this.#fail(error));
     }
 

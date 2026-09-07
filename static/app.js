@@ -54,6 +54,7 @@ let appConfig = null;
 let trainingFinishing = false;
 let realtimeShuttingDown = false;
 let currentAssistantText = "";
+let activeStreamEpoch = 0;
 const pageStartedAt = performance.now();
 const scenarioSelection = readScenarioSelection();
 const pushToTalk = createPushToTalkController({
@@ -176,6 +177,8 @@ function interruptActiveTurn(config) {
         return;
     }
 
+    activeStreamEpoch += 1;
+
     const interruptedTurn = activeLatencyTurn;
     if (interruptedTurn) {
         interruptedTurn.interrupted = true;
@@ -189,6 +192,7 @@ function interruptActiveTurn(config) {
         streamRelay = null;
     }
     simliClient?.ClearBuffer();
+    setTrainerTranscript("Ответ тренера прерван.");
     clearTimeout(interruptionTimer);
     interruptionTimer = window.setTimeout(() => {
         if (pendingInterruptedTurn === interruptedTurn) {
@@ -571,7 +575,7 @@ async function speak() {
 }
 
 /** Отправляет committed text любого источника в единственный существующий training pipeline. */
-async function submitUserMessage(value, { source = "text" } = {}) {
+async function submitUserMessage(value, { source = "text", releasedAt = null } = {}) {
 
 
     if (!value) {
@@ -600,8 +604,6 @@ async function submitUserMessage(value, { source = "text" } = {}) {
 
         if (trainingFinishing) return;
         if (source === "text") userTranscriptText.textContent = value;
-        setTrainerTranscript("Тренер формулирует ответ…");
-
         const speakStartedAt = performance.now();
 
         speakButton.disabled = true;
@@ -616,9 +618,11 @@ async function submitUserMessage(value, { source = "text" } = {}) {
                 return;
             }
             interruptActiveTurn(config);
-            await speakWithSimli(config, value, speakStartedAt);
+            setTrainerTranscript("Тренер формулирует ответ…");
+            await speakWithSimli(config, value, speakStartedAt, source === "voice" ? releasedAt : null);
             return;
         }
+        setTrainerTranscript("Тренер формулирует ответ…");
         const backendStartedAt = performance.now();
         const response = await fetch(`${config.chat_api_url}/api/chat`, {
             method: "POST",
@@ -740,11 +744,15 @@ function resolvePcmChunkBytes() {
 }
 
 /** Передаёт Gemini text stream и PCM16 фреймы в уже подключённый Simli client. */
-async function speakWithSimli(config, message, speakStartedAt) {
+async function speakWithSimli(config, message, speakStartedAt, voiceReleasedAt = null) {
 
     setStatus("Запрашиваю потоковый ответ...");
-    const turn = createLatencyTurn(speakStartedAt);
+    const latencyStartedAt = Number.isFinite(voiceReleasedAt) ? voiceReleasedAt : speakStartedAt;
+    const turn = createLatencyTurn(latencyStartedAt);
+    turn.voiceInput = Number.isFinite(voiceReleasedAt);
+    if (turn.voiceInput) markLatency(turn, "ptt_release", voiceReleasedAt);
     activeLatencyTurn = turn;
+    const streamEpoch = ++activeStreamEpoch;
     let receivedFirstPcm = false;
     let receivedFirstDelta = false;
 
@@ -757,12 +765,14 @@ async function speakWithSimli(config, message, speakStartedAt) {
         pcmChunkBytes: resolvePcmChunkBytes(),
         turnId: turn.turnId,
         onSession: (sessionId) => {
+            if (streamEpoch !== activeStreamEpoch) return;
             chatSessionId = sessionId;
             turn.sessionId = sessionId;
             updateFinishAvailability();
             markTurnLatency(turn, "session_received");
         },
         onDelta: (delta) => {
+            if (streamEpoch !== activeStreamEpoch) return;
             setTrainerTranscript(currentAssistantText === "Тренер формулирует ответ…" ? delta : currentAssistantText + delta);
             if (!receivedFirstDelta) {
                 receivedFirstDelta = true;
@@ -771,6 +781,7 @@ async function speakWithSimli(config, message, speakStartedAt) {
             }
         },
         onFirstPcm: (bytes) => {
+            if (streamEpoch !== activeStreamEpoch) return;
             if (!receivedFirstPcm) {
                 receivedFirstPcm = true;
                 markTurnLatency(turn, "browser_first_pcm");
@@ -778,15 +789,18 @@ async function speakWithSimli(config, message, speakStartedAt) {
             }
         },
         onMetrics: (payload) => {
+            if (streamEpoch !== activeStreamEpoch) return;
             turn.backendMetrics = payload.metrics;
             console.info("[latency]", { turnId: turn.turnId, backend: payload.metrics, outcome: payload.outcome });
         },
         onDone: (sessionId) => {
+            if (streamEpoch !== activeStreamEpoch) return;
             chatSessionId = sessionId || chatSessionId;
             turn.sessionId = chatSessionId;
             markTurnLatency(turn, "stream_completed");
             logTiming("stream_completed", speakStartedAt, { sessionId: chatSessionId });
-        }
+        },
+        isActive: () => streamEpoch === activeStreamEpoch && !trainingFinishing
     });
     streamRelay = relay;
     try {
@@ -815,6 +829,7 @@ async function speakWithSimli(config, message, speakStartedAt) {
 /** Закрывает transport, media и Scribe; используется и Disconnect, и terminal Finish. */
 async function shutdownRealtimeMedia({ updateUi = true, finalStatus = null } = {}) {
     realtimeShuttingDown = true;
+    activeStreamEpoch += 1;
     try {
         if (streamRelay) {
             try { streamRelay.cancel(); } catch (error) { console.warn("Не удалось отменить поток", error); }
