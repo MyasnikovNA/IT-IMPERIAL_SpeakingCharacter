@@ -45,10 +45,18 @@ class SimliSessionTokenClient(
         } catch (_: Exception) {
             throw SimliException("Simli session token request failed")
         }
+        val responseBody = response.bodyAsText()
         logger.info("simli_session_token_response durationMs={} status={}", (System.nanoTime() - startedAt) / 1_000_000, response.status.value)
-        if (response.status.value !in 200..299) throw SimliException("Simli session token request failed")
+        if (response.status.value !in 200..299) {
+            logger.warn(
+                "simli_session_token_rejected status={} detail={}",
+                response.status.value,
+                redactProviderDetail(responseBody, apiKey),
+            )
+            throw SimliException("Simli rejected session configuration (HTTP ${response.status.value})")
+        }
         return try {
-            json.parseToJsonElement(response.bodyAsText()).jsonObject["session_token"]
+            json.parseToJsonElement(responseBody).jsonObject["session_token"]
                 ?.let { it as? JsonPrimitive }?.contentOrNull
                 ?.takeIf { it.isNotBlank() }
                 ?: throw SimliException("Simli returned no session token")
@@ -57,5 +65,16 @@ class SimliSessionTokenClient(
         } catch (_: Exception) {
             throw SimliException("Simli returned an invalid session token")
         }
+    }
+
+    /** Обрезает и маскирует provider detail, чтобы диагностика не попадала в логи вместе с ключом. */
+    private fun redactProviderDetail(raw: String, apiKey: String): String = raw
+        .replace(apiKey, "[REDACTED]")
+        .replace(Regex("(?i)(api[_ -]?key|token|secret)\\s*[:=]\\s*[^,}\\s]+"), "$1=[REDACTED]")
+        .replace(Regex("[\\r\\n]+"), " ")
+        .take(MAX_PROVIDER_DETAIL_LENGTH)
+
+    private companion object {
+        const val MAX_PROVIDER_DETAIL_LENGTH = 500
     }
 }
