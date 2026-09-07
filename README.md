@@ -224,6 +224,24 @@ npm run test:frontend
 
 Реальные smoke-тесты Gemini, ElevenLabs, Simli и D-ID выполняйте только с настроенными ключами. Они расходуют квоты соответствующих провайдеров.
 
+## Demo acceptance
+
+Перед Demo Day выполните одну интерактивную команду:
+
+```bash
+./scripts/run-acceptance.sh
+```
+
+Runner строго проверяет build и unit-тесты, запускает Kotlin backend и static frontend, открывает тренировку и проводит пять ручных диалогов из [scripts/acceptance-cases.md](./scripts/acceptance-cases.md). После каждого диалога вставьте `sessionId` либо URL страницы отчёта: runner скачает уже сохранённые `/result` telemetry и проверит `FINISHED`/`READY`.
+
+Результаты появятся в `artifacts/acceptance/<timestamp>/`: `report.md`, `report.json`, `metrics.csv`, `sessions.json`, `run.log` и raw ответы API. Они игнорируются Git. Повторно построить отчёт из raw artifacts, например после ручной проверки, можно так:
+
+```bash
+./scripts/run-acceptance.sh --report-only artifacts/acceptance/<timestamp>
+```
+
+First audio, interruption, stale-event cancellation, сценарные результаты и готовность report собираются автоматически из существующей telemetry. Пять диалогов и смысловая корректность сценария требуют ручного взаимодействия. Настоящий lip-sync нельзя автоматически вывести из `simli_speaking`: Simli не отдаёт timestamp фонем и видео-кадров. Runner предлагает внести ручные замеры из 60 fps screen recording; 200 мс соответствуют примерно 12 кадрам. Без этих наблюдений итоговый статус честно будет `PARTIAL` с `MANUAL_VALIDATION_REQUIRED`.
+
 ## Пользовательский flow
 
 1. На стартовом экране выберите preset, загрузите Markdown-сценарий либо начните свободную тренировку.

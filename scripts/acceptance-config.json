@@ -1,0 +1,7 @@
+{
+  "firstAudioMaxMs": 3000,
+  "interruptMaxMs": 300,
+  "lipSyncMaxMs": 200,
+  "scenarioPassRequired": 4,
+  "scenarioTotal": 5
+}
