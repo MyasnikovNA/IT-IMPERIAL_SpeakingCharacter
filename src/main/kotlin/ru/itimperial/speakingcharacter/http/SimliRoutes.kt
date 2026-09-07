@@ -227,7 +227,9 @@ private suspend fun WebSocketServerSession.handleSimliTurn(
                 textDeltas.close()
                 ttsJob.join()
                 tracker.mark("stream_completed")
-                outbound.sendMetrics(tracker.finish("completed"))
+                val snapshot = tracker.finish("completed")
+                persistStreamMetrics(manager, session.id, activeGeneration.get(), snapshot)
+                outbound.sendMetrics(snapshot)
                 outbound.sendEvent(
                     ChatStreamEvent(
                         type = "done",
@@ -240,7 +242,9 @@ private suspend fun WebSocketServerSession.handleSimliTurn(
             is ServerEvent.GenerationCancelled -> {
                 textDeltas.close()
                 ttsJob.cancelAndJoin()
-                outbound.sendMetrics(tracker.finish("cancelled"))
+                val snapshot = tracker.finish("cancelled")
+                persistStreamMetrics(manager, session.id, activeGeneration.get(), snapshot)
+                outbound.sendMetrics(snapshot)
                 outbound.sendEvent(
                     ChatStreamEvent(
                         type = "cancelled",
@@ -253,7 +257,9 @@ private suspend fun WebSocketServerSession.handleSimliTurn(
             is ServerEvent.Error -> {
                 textDeltas.close()
                 ttsJob.cancelAndJoin()
-                outbound.sendMetrics(tracker.finish(result.code.lowercase()))
+                val snapshot = tracker.finish(result.code.lowercase())
+                persistStreamMetrics(manager, session.id, activeGeneration.get(), snapshot)
+                outbound.sendMetrics(snapshot)
                 outbound.sendEvent(
                     ChatStreamEvent(
                         type = "error",
@@ -267,7 +273,9 @@ private suspend fun WebSocketServerSession.handleSimliTurn(
             is ServerEvent.StaleGeneration -> {
                 textDeltas.close()
                 ttsJob.cancelAndJoin()
-                outbound.sendMetrics(tracker.finish("stale_generation"))
+                val snapshot = tracker.finish("stale_generation")
+                persistStreamMetrics(manager, session.id, activeGeneration.get(), snapshot)
+                outbound.sendMetrics(snapshot)
                 outbound.sendEvent(
                     ChatStreamEvent(
                         type = "error",
@@ -333,4 +341,22 @@ private suspend fun SendChannel<Frame>.sendMetrics(snapshot: ru.itimperial.speak
             metrics = snapshot.elapsedMillis,
         ),
     )
+}
+
+/** Сохраняет уже измеренные server-side stage durations в session aggregate для acceptance отчёта. */
+private suspend fun persistStreamMetrics(
+    manager: TrainingSessionManager,
+    sessionId: String,
+    generationId: Long,
+    snapshot: ru.itimperial.speakingcharacter.service.TurnLatencySnapshot,
+) {
+    snapshot.elapsedMillis.forEach { (stage, valueMs) ->
+        manager.recordMetric(
+            sessionId = sessionId,
+            name = "stream_$stage",
+            generationId = generationId.takeIf { it >= 0 },
+            valueMs = valueMs,
+            turnId = snapshot.turnId,
+        )
+    }
 }
