@@ -1,5 +1,5 @@
 import { openSimliStream } from "./simli-stream-client.js?v=3";
-import { buildLatencyReport, createLatencyTurn, markLatency, reportLatency } from "./latency-monitor.js";
+import { buildLatencyReport, createLatencyTurn, markLatency, reportLatency, reportStaleEvent } from "./latency-monitor.js";
 import { createPushToTalkController } from "./push-to-talk-controller.js?v=13";
 
 const video =
@@ -167,6 +167,16 @@ function finishTurnLatency(turn, config, outcome) {
     console.info("[latency]", { turnId: report.turnId, outcome, metrics: report.metrics, slo: report.slo });
     reportLatency(config.chat_api_url, report, turn.sessionId || chatSessionId)
         .catch(() => console.warn("Не удалось передать latency-метрики"));
+
+}
+
+/** Пишет факт отброшенного старого callback в существующую telemetry без влияния на UI. */
+function recordStaleStreamEvent(config, turn, eventType) {
+
+    const sessionId = turn?.sessionId || chatSessionId;
+    console.info("[latency]", { turnId: turn?.turnId, event: `stale_${eventType}_dropped` });
+    reportStaleEvent(config.chat_api_url, sessionId, turn?.turnId, eventType)
+        .catch(() => console.warn("Не удалось передать telemetry устаревшего события"));
 
 }
 
@@ -800,6 +810,7 @@ async function speakWithSimli(config, message, speakStartedAt, voiceReleasedAt =
             markTurnLatency(turn, "stream_completed");
             logTiming("stream_completed", speakStartedAt, { sessionId: chatSessionId });
         },
+        onStale: (eventType) => recordStaleStreamEvent(config, turn, eventType),
         isActive: () => streamEpoch === activeStreamEpoch && !trainingFinishing
     });
     streamRelay = relay;

@@ -48,6 +48,8 @@ data class CriterionScore(
 data class TrainingMetric(
     val name: String,
     val generationId: Long? = null,
+    /** Correlation-id browser turn; отсутствует у server-only измерений. */
+    val turnId: String? = null,
     val valueMs: Long,
     val recordedAt: String,
 )

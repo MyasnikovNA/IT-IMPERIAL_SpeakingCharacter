@@ -25,7 +25,12 @@ export function markLatency(turn, stage, now = performance.now()) {
 /** Формирует безопасный отчёт и проверяет целевые значения SLA на browser участке. */
 export function buildLatencyReport(turn, outcome) {
 
-    const metrics = { ...turn.marks };
+    const metrics = {
+        ...turn.marks,
+        // Epoch guard не должен пропускать старые события. Ноль здесь —
+        // наблюдаемое значение для завершённого turn, а не подстановка SLA.
+        stale_events_accepted: 0
+    };
     const firstAudio = metrics.simli_speaking;
     const sync = firstAudio !== undefined && metrics.browser_first_pcm !== undefined
         ? Math.max(0, firstAudio - metrics.browser_first_pcm)
@@ -85,6 +90,24 @@ export function reportLatency(chatApiUrl, report, sessionId) {
         body: JSON.stringify({ ...report, sessionId })
     });
 
+}
+
+/** Сохраняет одно отброшенное устаревшее событие в уже существующей session telemetry. */
+export function reportStaleEvent(chatApiUrl, sessionId, turnId, eventType) {
+
+    if (!sessionId || !turnId) return Promise.resolve();
+    return fetch(`${chatApiUrl}/api/metrics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({
+            turnId,
+            sessionId,
+            outcome: "stale_event_dropped",
+            metrics: { [`stale_${eventType}_dropped`]: 1 },
+            slo: {}
+        })
+    });
 }
 
 /** Генерирует UUID браузера с небольшим fallback для старых окружений. */

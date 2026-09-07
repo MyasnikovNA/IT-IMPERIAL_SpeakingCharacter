@@ -155,11 +155,13 @@ class TrainingSessionManager(
         }
     }
 
+    /** Сохраняет одно измерение существующей telemetry; browser turnId сохраняет correlation без новой схемы. */
     suspend fun recordMetric(
         sessionId: String,
         name: String,
         generationId: Long?,
         valueMs: Long,
+        turnId: String? = null,
     ) {
         require(name.isNotBlank()) { "Metric name must not be blank" }
         require(valueMs >= 0) { "Metric valueMs must be non-negative" }
@@ -169,6 +171,7 @@ class TrainingSessionManager(
                 metrics = session.metrics + TrainingMetric(
                     name = name.trim(),
                     generationId = generationId,
+                    turnId = turnId,
                     valueMs = valueMs,
                     recordedAt = Instant.now().toString(),
                 ),

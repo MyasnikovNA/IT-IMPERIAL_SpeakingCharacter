@@ -41,6 +41,7 @@ export function openSimliStream({
     onFirstPcm,
     onDone,
     onMetrics,
+    onStale = () => {},
     isActive = () => true,
     turnId,
     pcmChunkBytes = 3000,
@@ -70,7 +71,18 @@ export function openSimliStream({
         socket.send(JSON.stringify({ type: "start", sessionId, message, scenario, turnId }));
     };
     socket.onmessage = async (event) => {
-        if (!isActive()) return;
+        if (!isActive()) {
+            if (typeof event.data === "string") {
+                const type = (() => {
+                    try { return JSON.parse(event.data).type; } catch (_) { return "text"; }
+                })();
+                if (type === "delta") onStale("text");
+                if (type === "done") onStale("done");
+            } else {
+                onStale("pcm");
+            }
+            return;
+        }
         if (typeof event.data === "string") {
             const payload = JSON.parse(event.data);
             if (payload.type === "session") {
@@ -94,7 +106,10 @@ export function openSimliStream({
         const buffer = event.data instanceof ArrayBuffer
             ? event.data
             : await event.data.arrayBuffer();
-        if (!isActive()) return;
+        if (!isActive()) {
+            onStale("pcm");
+            return;
+        }
         const pcm = new Uint8Array(buffer);
         onFirstPcm(pcm.byteLength);
         if (pcmBuffer) {

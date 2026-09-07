@@ -120,12 +120,13 @@ test("relay передаёт сценарий только в start-команд
 
 test("stale stream epoch отбрасывает поздние delta, PCM, metrics и done", async () => {
     const events = [];
+    const stale = [];
     let active = true;
     const relay = openSimliStream({
         url: "ws://test/api/chat/stream", sessionId: "session-1", message: "Текст",
         simliClient: { sendAudioData: () => events.push("audio"), ClearBuffer: () => {} },
         onSession: () => events.push("session"), onDelta: () => events.push("delta"), onFirstPcm: () => events.push("pcm"),
-        onDone: () => events.push("done"), onMetrics: () => events.push("metrics"), isActive: () => active,
+        onDone: () => events.push("done"), onMetrics: () => events.push("metrics"), onStale: (type) => stale.push(type), isActive: () => active,
         WebSocketImpl: FakeSocket
     });
     const socket = FakeSocket.instance;
@@ -137,5 +138,6 @@ test("stale stream epoch отбрасывает поздние delta, PCM, metri
     await socket.emitText({ type: "done", sessionId: "session-1" });
 
     assert.deepEqual(events, []);
+    assert.deepEqual(stale, ["text", "pcm", "done"]);
     relay.completion.catch(() => {});
 });

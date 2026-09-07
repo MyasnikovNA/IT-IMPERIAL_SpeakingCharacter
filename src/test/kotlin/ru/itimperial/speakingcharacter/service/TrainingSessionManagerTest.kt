@@ -174,6 +174,22 @@ class TrainingSessionManagerTest {
         collector.cancel()
     }
 
+    /** Сохраняет browser correlation-id, чтобы acceptance CSV не смешивал разные голосовые turn. */
+    @Test
+    fun `browser metric keeps turn correlation id`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = InMemoryRepository()
+        val manager = manager(repo, object : LlmClient {
+            override fun streamReply(history: List<TrainingMessage>, systemPrompt: String): Flow<String> = flow { }
+            override suspend fun generateText(prompt: String, systemPrompt: String, jsonMode: Boolean) = "{}"
+        }, testConfig(), dispatcher)
+        val session = manager.createSession()
+
+        manager.recordMetric(session.id, "browser_voice_end_to_first_audio_ms", null, 123, "turn-1")
+
+        assertEquals("turn-1", repo.get(session.id)?.metrics?.single()?.turnId)
+    }
+
     /** Создаёт менеджер с реальными сценарными зависимостями и тестовыми adapters. */
     private fun manager(repo: InMemoryRepository, llm: LlmClient, config: AppConfig, dispatcher: TestDispatcher): TrainingSessionManager {
         val reportService = ReportService(llm, Json { ignoreUnknownKeys = true })
