@@ -1,4 +1,4 @@
-import { openSimliStream } from "./simli-stream-client.js?v=3";
+import { openSimliStream, SIMLI_PCM_CHUNK_BYTES } from "./simli-stream-client.js?v=4";
 import { buildLatencyReport, createLatencyTurn, markLatency, reportLatency, reportStaleEvent } from "./latency-monitor.js";
 import { createPushToTalkController } from "./push-to-talk-controller.js?v=13";
 
@@ -741,15 +741,15 @@ async function activatePushToTalk(sttPreconnection) {
 
 }
 
-/** Выбирает размер PCM16 блока для Simli; raw нужен только для локального A/B сравнения. */
+/** Выбирает размер PCM16 блока для Simli: 3000 Int16-семплов = 6000 bytes. */
 function resolvePcmChunkBytes() {
 
     const value = new URLSearchParams(window.location.search).get("pcmChunkBytes");
     if (value === "raw") {
         return null;
     }
-    const parsed = Number(value || 3000);
-    return Number.isInteger(parsed) && parsed > 0 && parsed % 2 === 0 ? parsed : 3000;
+    const parsed = Number(value || SIMLI_PCM_CHUNK_BYTES);
+    return Number.isInteger(parsed) && parsed > 0 && parsed % 2 === 0 ? parsed : SIMLI_PCM_CHUNK_BYTES;
 
 }
 

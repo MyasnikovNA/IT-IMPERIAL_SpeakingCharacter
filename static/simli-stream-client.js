@@ -1,3 +1,11 @@
+/**
+ * Штатный блок Simli: 3000 Int16-семплов, то есть 6000 байт PCM16.
+ *
+ * Параметр audioBufferSize в simli-client измеряется семплами, а sendAudioData
+ * принимает байты. Поэтому нельзя передавать сюда значение 3000 напрямую.
+ */
+export const SIMLI_PCM_CHUNK_BYTES = 6000;
+
 /** Собирает произвольные PCM16 фреймы провайдера в стабильные блоки для Simli. */
 export class PcmChunkBuffer {
     constructor(chunkBytes) {
@@ -22,10 +30,18 @@ export class PcmChunkBuffer {
         return chunks;
     }
 
-    flush() {
-        const tail = this.pending;
+    /**
+     * Завершает turn полным PCM-блоком: дополняет хвост цифровой тишиной.
+     *
+     * Неполный WebSocket-пакет не соответствует штатному буферу Simli и может
+     * быть отброшен транспортом, из-за чего речь слышна до середины слова.
+     */
+    flushPadded() {
+        if (!this.pending.byteLength) return [];
+        const tail = new Uint8Array(this.chunkBytes);
+        tail.set(this.pending);
         this.pending = new Uint8Array(0);
-        return tail.byteLength ? [tail] : [];
+        return [tail];
     }
 }
 
@@ -44,7 +60,7 @@ export function openSimliStream({
     onStale = () => {},
     isActive = () => true,
     turnId,
-    pcmChunkBytes = 3000,
+    pcmChunkBytes = SIMLI_PCM_CHUNK_BYTES,
     WebSocketImpl = WebSocket
 }) {
 
@@ -96,7 +112,7 @@ export function openSimliStream({
             } else if (payload.type === "done" && !settled) {
                 if (!isActive()) return;
                 settled = true;
-                pcmBuffer?.flush().forEach((pcm) => simliClient.sendAudioData(pcm));
+                pcmBuffer?.flushPadded().forEach((pcm) => simliClient.sendAudioData(pcm));
                 onDone(payload.sessionId);
                 resolveCompletion();
             }
