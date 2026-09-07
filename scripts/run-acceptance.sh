@@ -60,7 +60,7 @@ PY
 fail() { echo "ACCEPTANCE PREFLIGHT FAILED: $*" >&2; exit 1; }
 
 command -v java >/dev/null || fail "java is required"
-JAVA_MAJOR="$(java -version 2>&1 | sed -nE '1{s/.*version "([0-9]+).*/\1/p}')"
+JAVA_MAJOR="$(java -version 2>&1 | awk -F '"' '/version/ { split($2, parts, "."); print parts[1]; exit }')"
 [[ "$JAVA_MAJOR" =~ ^[0-9]+$ && "$JAVA_MAJOR" -ge 17 ]] || fail "Java 17+ is required"
 record_preflight java "PASS (Java $JAVA_MAJOR)"
 [[ -x ./gradlew ]] || fail "./gradlew must be executable"; record_preflight gradlew PASS
