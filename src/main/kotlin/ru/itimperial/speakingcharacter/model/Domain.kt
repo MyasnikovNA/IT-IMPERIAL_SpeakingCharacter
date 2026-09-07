@@ -10,6 +10,15 @@ enum class SessionStatus {
     FINISHED,
 }
 
+/** Отражает независимый жизненный цикл формирования итоговой оценки. */
+@Serializable
+enum class ReportStatus {
+    NOT_STARTED,
+    GENERATING,
+    READY,
+    FAILED,
+}
+
 @Serializable
 enum class MessageRole {
     @SerialName("user") USER,
@@ -31,12 +40,16 @@ data class CriterionScore(
     val score: Int,
     val comment: String,
     val evidence: String,
+    /** Связывает evidence только с фактической репликой сотрудника. */
+    val evidenceGenerationId: Long? = null,
 )
 
 @Serializable
 data class TrainingMetric(
     val name: String,
     val generationId: Long? = null,
+    /** Correlation-id browser turn; отсутствует у server-only измерений. */
+    val turnId: String? = null,
     val valueMs: Long,
     val recordedAt: String,
 )
@@ -64,4 +77,10 @@ data class TrainingSession(
     val messages: List<TrainingMessage> = emptyList(),
     val metrics: List<TrainingMetric> = emptyList(),
     val report: TrainingReport? = null,
+    /** Время необратимого завершения тренировки; сохраняется при retry отчёта. */
+    val finishedAt: String? = null,
+    /** Состояние отдельного процесса evaluation без отката самой тренировки. */
+    val reportStatus: ReportStatus = ReportStatus.NOT_STARTED,
+    /** Безопасное пользовательское объяснение сбоя evaluation без деталей provider. */
+    val reportError: String? = null,
 )

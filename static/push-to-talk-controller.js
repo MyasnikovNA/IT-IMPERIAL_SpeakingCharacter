@@ -1,4 +1,4 @@
-import { PushToTalkTranscriber, VoiceState } from "./scribe-client.js?v=12";
+import { PushToTalkTranscriber, VoiceState } from "./scribe-client.js?v=13";
 
 const labels = Object.freeze({
     [VoiceState.DISCONNECTED]: "Микрофон недоступен",
@@ -17,6 +17,7 @@ export function createPushToTalkController({
     interrupt,
     submit,
     setStatus,
+    onStateChange = () => {},
     transcriberFactory = (options) => new PushToTalkTranscriber(options)
 }) {
     let avatarConnected = false;
@@ -28,13 +29,14 @@ export function createPushToTalkController({
         button.classList.toggle("is-listening", state === VoiceState.LISTENING);
         button.classList.toggle("is-committing", state === VoiceState.COMMITTING);
         button.setAttribute("aria-pressed", String(state === VoiceState.LISTENING));
+        onStateChange(state);
     };
     const transcriber = transcriberFactory({
         onPartial: (value) => { transcriptElement.textContent = value; },
         onCommitted: async (value, meta) => {
             transcriptElement.textContent = value;
             if (meta.maxDuration) setStatus("Реплика достигла максимальной длины и отправлена.");
-            await submit(value, { source: "voice" });
+            await submit(value, { source: "voice", releasedAt: meta.releasedAt });
         },
         onStateChange: (state) => render(state),
         onError: (message) => setStatus(message),

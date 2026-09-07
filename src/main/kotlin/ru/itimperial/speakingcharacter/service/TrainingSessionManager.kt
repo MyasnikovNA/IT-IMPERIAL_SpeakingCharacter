@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.withLock
 import ru.itimperial.speakingcharacter.config.AppConfig
 import ru.itimperial.speakingcharacter.llm.LlmClient
 import ru.itimperial.speakingcharacter.model.MessageRole
+import ru.itimperial.speakingcharacter.model.ReportStatus
 import ru.itimperial.speakingcharacter.model.ServerEvent
 import ru.itimperial.speakingcharacter.model.SessionStatus
 import ru.itimperial.speakingcharacter.model.TrainingMessage
@@ -154,11 +155,13 @@ class TrainingSessionManager(
         }
     }
 
+    /** Сохраняет одно измерение существующей telemetry; browser turnId сохраняет correlation без новой схемы. */
     suspend fun recordMetric(
         sessionId: String,
         name: String,
         generationId: Long?,
         valueMs: Long,
+        turnId: String? = null,
     ) {
         require(name.isNotBlank()) { "Metric name must not be blank" }
         require(valueMs >= 0) { "Metric valueMs must be non-negative" }
@@ -168,6 +171,7 @@ class TrainingSessionManager(
                 metrics = session.metrics + TrainingMetric(
                     name = name.trim(),
                     generationId = generationId,
+                    turnId = turnId,
                     valueMs = valueMs,
                     recordedAt = Instant.now().toString(),
                 ),
@@ -185,23 +189,65 @@ class TrainingSessionManager(
             runtime.pipelineJob = null
 
             val session = repository.get(sessionId) ?: throw SessionNotFoundException(sessionId)
-            if (session.status == SessionStatus.FINISHED && session.report != null) {
+            if (session.status == SessionStatus.FINISHED && (session.reportStatus == ReportStatus.READY || session.report != null)) {
+                return@withLock session
+            }
+            if (session.status == SessionStatus.FINISHED && session.reportStatus == ReportStatus.GENERATING) {
                 return@withLock session
             }
 
-            val expectedCriteria = session.scenarioSnapshot?.definition?.criteria ?: DEFAULT_EVALUATION_CRITERIA
-            val report = reportService.build(session.messages, expectedCriteria)
+            // Сначала необратимо сохраняем сам факт завершения. Сбой Gemini не имеет
+            // права вернуть участника в ACTIVE или потерять сохранённую стенограмму.
+            val now = Instant.now().toString()
             val finished = repository.update(sessionId) { latest ->
                 latest.copy(
                     status = SessionStatus.FINISHED,
-                    updatedAt = Instant.now().toString(),
+                    finishedAt = latest.finishedAt ?: now,
+                    updatedAt = now,
                     latestGenerationId = runtime.currentGenerationId.get(),
-                    report = report,
+                    reportStatus = ReportStatus.GENERATING,
+                    reportError = null,
                 )
             } ?: throw SessionNotFoundException(sessionId)
-            runtime.emit(ServerEvent.ReportReady(report))
-            finished
+            generateReportLocked(sessionId, runtime, finished)
         }
+    }
+
+    /** Повторно запускает evaluation только для уже завершённой тренировки без готового отчёта. */
+    suspend fun retryReport(sessionId: String): TrainingSession {
+        val persisted = repository.get(sessionId) ?: throw SessionNotFoundException(sessionId)
+        val runtime = runtimeFor(persisted)
+        return runtime.commandMutex.withLock {
+            val session = repository.get(sessionId) ?: throw SessionNotFoundException(sessionId)
+            check(session.status == SessionStatus.FINISHED) { "Training is still active" }
+            if (session.reportStatus == ReportStatus.READY || session.report != null || session.reportStatus == ReportStatus.GENERATING) {
+                return@withLock session
+            }
+            val generating = repository.update(sessionId) { latest ->
+                latest.copy(updatedAt = Instant.now().toString(), reportStatus = ReportStatus.GENERATING, reportError = null)
+            } ?: throw SessionNotFoundException(sessionId)
+            generateReportLocked(sessionId, runtime, generating)
+        }
+    }
+
+    /** Вызывает evaluator после persist FINISHED и сохраняет только безопасный terminal result. */
+    private suspend fun generateReportLocked(sessionId: String, runtime: SessionRuntime, session: TrainingSession): TrainingSession = try {
+        val report = reportService.build(
+            messages = session.messages,
+            scenario = session.scenarioSnapshot,
+            fallbackCriteria = DEFAULT_EVALUATION_CRITERIA,
+        )
+        val ready = repository.update(sessionId) { latest ->
+            latest.copy(updatedAt = Instant.now().toString(), report = report, reportStatus = ReportStatus.READY, reportError = null)
+        } ?: throw SessionNotFoundException(sessionId)
+        runtime.emit(ServerEvent.ReportReady(report))
+        ready
+    } catch (exception: Exception) {
+        val failed = repository.update(sessionId) { latest ->
+            latest.copy(updatedAt = Instant.now().toString(), report = null, reportStatus = ReportStatus.FAILED, reportError = REPORT_FAILURE_MESSAGE)
+        } ?: throw SessionNotFoundException(sessionId)
+        runtime.emit(ServerEvent.ReportFailed(REPORT_FAILURE_MESSAGE))
+        failed
     }
 
     private suspend fun runGeneration(
@@ -335,6 +381,7 @@ class TrainingSessionManager(
 
     private companion object {
         val DEFAULT_EVALUATION_CRITERIA = listOf("Полнота ответа", "Следование сценарию", "Качество коммуникации")
+        const val REPORT_FAILURE_MESSAGE = "Не удалось сформировать оценку. Попробуйте ещё раз."
     }
 
     private fun runtimeFor(session: TrainingSession): SessionRuntime =

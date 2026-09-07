@@ -13,7 +13,7 @@
 - субтитры с alignment-метаданными PCM-фреймов;
 - realtime voice input через ElevenLabs Scribe v2: удержание кнопки, partial transcript и ручной commit при отпускании;
 - метрики `gemini_first_delta`, `tts_first_audio`, `browser_first_pcm`, `simli_speaking` и итоговые browser-метрики;
-- идемпотентное завершение тренировки и строгий итоговый report;
+- идемпотентное завершение тренировки, безопасная стенограмма и строгий итоговый report с повторной попыткой evaluation;
 - встроенные и одноразовые сценарии с неизменяемым snapshot внутри сессии.
 
 ## Архитектура
@@ -153,7 +153,20 @@ Content-Type: application/json
 - `POST /api/chat/{sessionId}/finish` — сформировать либо получить существующий report;
 - `GET /api/chat/{sessionId}/report` — получить report, если тренировка завершена.
 
-`finish` идемпотентен. Report включает оценку `overallScore` от 1 до 5, краткое резюме, 1–3 рекомендации и оценку каждого ожидаемого критерия с `comment` и `evidence`. Ошибка Gemini или невалидный JSON не завершают сессию.
+`finish` идемпотентен. После нажатия тренировка сразу фиксируется как завершённая, а формирование report имеет отдельный статус: `GENERATING`, `READY` или `FAILED`. Поэтому сбой Gemini или невалидный JSON не теряет стенограмму и не возвращает пользователя в активную тренировку — report можно сформировать повторно.
+
+Страница результата переживает reload: она ждёт только переходные статусы ограниченное время, не опрашивает активную тренировку и предлагает вручную проверить статус при долгой генерации. При `FAILED` стенограмма остаётся доступной, а evaluation можно безопасно запустить повторно.
+
+### Результат тренировки
+
+Новый product-flow использует эти endpoints:
+
+- `POST /api/sessions/{sessionId}/finish` — завершить тренировку и начать evaluation;
+- `GET /api/sessions/{sessionId}/result` — безопасные данные для страницы результата;
+- `POST /api/sessions/{sessionId}/report/retry` — повторить failed evaluation;
+- `GET /api/sessions/{sessionId}/report` — получить готовый JSON report.
+
+`result` специально не передаёт в браузер скрытые системные инструкции сценария и правила выхода из этапов. Готовый report включает детерминированную итоговую оценку `overallScore` от 1 до 5, summary, 1–3 рекомендации и ровно критерии выбранного сценария. Каждая оценка содержит `comment`, `evidence` и, если оно известно, `evidenceGenerationId` со ссылкой на реплику сотрудника в стенограмме.
 
 ### Потоковый Simli
 
@@ -191,6 +204,8 @@ Content-Type: application/json
 - ElevenLabs получает word-safe чанки текста и отдаёт PCM16 16 kHz;
 - `simli_speaking` — диагностический proxy, а не доказательство lip-sync SLO: SDK не предоставляет timestamps видео-кадров.
 
+Перед защитой используйте [acceptance-чек-лист](./docs/demo-acceptance.md): пять фиксированных диалогов, реальные значения first-audio/interrupt и ручная offline-проверка lip-sync при 60 fps.
+
 Целевые продуктовые SLO:
 
 - первый звук — до 3 секунд после отправки реплики;
@@ -208,6 +223,31 @@ npm run test:frontend
 ```
 
 Реальные smoke-тесты Gemini, ElevenLabs, Simli и D-ID выполняйте только с настроенными ключами. Они расходуют квоты соответствующих провайдеров.
+
+## Demo acceptance
+
+Перед Demo Day выполните одну интерактивную команду:
+
+```bash
+./scripts/run-acceptance.sh
+```
+
+Runner строго проверяет build и unit-тесты, запускает Kotlin backend и static frontend, открывает тренировку и проводит пять ручных диалогов из [scripts/acceptance-cases.md](./scripts/acceptance-cases.md). После каждого диалога вставьте `sessionId` либо URL страницы отчёта: runner скачает уже сохранённые `/result` telemetry и проверит `FINISHED`/`READY`.
+
+Результаты появятся в `artifacts/acceptance/<timestamp>/`: `report.md`, `report.json`, `metrics.csv`, `sessions.json`, `run.log` и raw ответы API. Они игнорируются Git. Повторно построить отчёт из raw artifacts, например после ручной проверки, можно так:
+
+```bash
+./scripts/run-acceptance.sh --report-only artifacts/acceptance/<timestamp>
+```
+
+First audio, interruption, stale-event cancellation, сценарные результаты и готовность report собираются автоматически из существующей telemetry. Пять диалогов и смысловая корректность сценария требуют ручного взаимодействия. Настоящий lip-sync нельзя автоматически вывести из `simli_speaking`: Simli не отдаёт timestamp фонем и видео-кадров. Runner предлагает внести ручные замеры из 60 fps screen recording; 200 мс соответствуют примерно 12 кадрам. Без этих наблюдений итоговый статус честно будет `PARTIAL` с `MANUAL_VALIDATION_REQUIRED`.
+
+## Пользовательский flow
+
+1. На стартовом экране выберите preset, загрузите Markdown-сценарий либо начните свободную тренировку.
+2. На экране тренировки подключите аватара; отвечайте push-to-talk или раскройте ручной текстовый ввод.
+3. Субтитры тренера отображаются по мере потокового ответа. Кнопка «Завершить тренировку» доступна только после создания сессии и вне активного голосового commit.
+4. Подтвердите завершение в диалоге. На странице результата доступны оценка навыков, рекомендации, доказательства в стенограмме, статистика и повторная попытка отчёта при ошибке.
 
 ## Ограничения MVP
 

@@ -35,6 +35,7 @@ uploads/
 exports/
 
 *.log
+artifacts/acceptance/
 
 .DS_Store
 Thumbs.db

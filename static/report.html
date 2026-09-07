@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Результат тренировки — AI-тренажёр</title>
+    <link rel="stylesheet" href="/style.css?v=4">
+</head>
+<body>
+<main class="container report-page">
+    <section class="training-card report-card">
+        <a class="back-link" href="/">← К сценариям</a>
+        <p class="eyebrow">AI-ТРЕНАЖЁР</p>
+        <p class="report-label">Результат тренировки</p>
+        <h1 id="report-title">Загружаем результат…</h1>
+        <p id="report-date" class="training-mode"></p>
+        <section id="report-loading" class="report-state" aria-live="polite">
+            <strong id="report-loading-title">✓ Тренировка завершена</strong>
+            <p id="report-loading-message">Формируем обратную связь по критериям сценария.</p>
+            <button id="report-refresh" class="secondary-button" hidden>Проверить статус</button>
+        </section>
+        <section id="report-failure" class="report-state report-state--failure" hidden><strong>✓ Тренировка сохранена</strong><p id="report-error">Не удалось сформировать оценку.</p><button id="retry-report">Повторить формирование отчёта</button></section>
+        <section id="report-content" hidden>
+            <div class="score-hero"><span id="overall-score">—</span><small>/ 5</small><p>Итоговая оценка</p></div>
+            <p id="report-summary" class="report-summary"></p>
+            <h2>Оценка навыков</h2>
+            <div id="criteria-list" class="criteria-list"></div>
+            <h2>Рекомендации</h2>
+            <ol id="recommendations" class="recommendations"></ol>
+            <h2>Статистика тренировки</h2>
+            <dl id="training-stats" class="training-stats"></dl>
+        </section>
+        <details id="transcript-details" class="transcript-details">
+            <summary>Посмотреть стенограмму</summary>
+            <div id="transcript" class="transcript"></div>
+        </details>
+        <div class="report-actions">
+            <button id="repeat-scenario">Повторить тренировку</button>
+            <a class="secondary-link" href="/">Выбрать другой сценарий</a>
+            <button id="save-report" class="secondary-button">Сохранить отчёт</button>
+        </div>
+    </section>
+</main>
+<script type="module" src="/report.js?v=2"></script>
+</body>
+</html>

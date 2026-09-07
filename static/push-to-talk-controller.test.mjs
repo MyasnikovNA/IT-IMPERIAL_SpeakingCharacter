@@ -19,8 +19,8 @@ test("controller forwards only committed voice text to shared submit", async () 
     await controller.connect();
     options.onPartial("частично");
     assert.equal(transcriptElement.textContent, "частично");
-    await options.onCommitted("готово", { turnId: 1, maxDuration: false });
-    assert.deepEqual(submitted, { value: "готово", meta: { source: "voice" } });
+    await options.onCommitted("готово", { turnId: 1, maxDuration: false, releasedAt: 1234 });
+    assert.deepEqual(submitted, { value: "готово", meta: { source: "voice", releasedAt: 1234 } });
     globalThis.window = originalWindow;
 });
 

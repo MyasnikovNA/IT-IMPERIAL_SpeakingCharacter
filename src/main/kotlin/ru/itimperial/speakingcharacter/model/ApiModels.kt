@@ -40,6 +40,33 @@ data class ErrorResponse(
     val error: String,
 )
 
+/** Безопасное представление завершённой тренировки для report UI без скрытых prompt-инструкций. */
+@Serializable
+data class TrainingResultDto(
+    val sessionId: String,
+    val createdAt: String,
+    val finishedAt: String? = null,
+    val status: SessionStatus,
+    val reportStatus: ReportStatus,
+    val reportError: String? = null,
+    val scenario: ScenarioSummaryDto? = null,
+    /** Источник карточки нужен только для безопасного повтора preset-сценария. */
+    val scenarioSource: String? = null,
+    val messages: List<TrainingResultMessageDto> = emptyList(),
+    val metrics: List<TrainingMetric> = emptyList(),
+    val report: TrainingReport? = null,
+)
+
+/** Описывает одну безопасную строку стенограммы, пригодную для отчёта. */
+@Serializable
+data class TrainingResultMessageDto(
+    val role: MessageRole,
+    val text: String,
+    val createdAt: String,
+    val generationId: Long,
+    val interrupted: Boolean = false,
+)
+
 @Serializable
 data class ChatRequest(
     val sessionId: String? = null,
@@ -240,6 +267,13 @@ sealed interface ServerEvent {
     @SerialName("report_ready")
     data class ReportReady(
         val report: TrainingReport,
+    ) : ServerEvent
+
+    /** Сообщает клиенту, что transcript сохранён, но evaluation можно повторить позже. */
+    @Serializable
+    @SerialName("report_failed")
+    data class ReportFailed(
+        val message: String,
     ) : ServerEvent
 
     @Serializable

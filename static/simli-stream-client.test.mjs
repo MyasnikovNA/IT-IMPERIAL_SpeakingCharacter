@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { openSimliStream, PcmChunkBuffer } from "./simli-stream-client.js";
+import { openSimliStream, PcmChunkBuffer, SIMLI_PCM_CHUNK_BYTES } from "./simli-stream-client.js";
 
-test("PCM rechunker передаёт Simli блоки фиксированного размера и хвост", () => {
+test("PCM rechunker передаёт Simli блоки фиксированного размера и дополняет хвост тишиной", () => {
     const buffer = new PcmChunkBuffer(6);
 
     assert.deepEqual(buffer.push(new Uint8Array([1, 2, 3, 4])), []);
     assert.deepEqual(buffer.push(new Uint8Array([5, 6, 7, 8, 9])).map((chunk) => [...chunk]), [[1, 2, 3, 4, 5, 6]]);
-    assert.deepEqual(buffer.flush().map((chunk) => [...chunk]), [[7, 8, 9]]);
+    assert.deepEqual(buffer.flushPadded().map((chunk) => [...chunk]), [[7, 8, 9, 0, 0, 0]]);
+});
+
+test("штатный размер Simli равен 3000 Int16-семплам, или 6000 байтам", () => {
+    assert.equal(SIMLI_PCM_CHUNK_BYTES, 6000);
 });
 
 class FakeSocket {
@@ -64,6 +68,27 @@ test("relay передаёт PCM в Simli в порядке поступлени
     assert.deepEqual(JSON.parse(socket.sent[0]), { type: "start", sessionId: null, message: "Текст" });
 });
 
+test("relay дополняет последний неполный PCM блок тишиной перед done", async () => {
+    const audio = [];
+    const relay = openSimliStream({
+        url: "ws://test/api/chat/stream",
+        sessionId: "session-1",
+        message: "Текст",
+        pcmChunkBytes: 6,
+        simliClient: { sendAudioData: (pcm) => audio.push([...pcm]), ClearBuffer: () => {} },
+        onSession: () => {}, onDelta: () => {}, onFirstPcm: () => {}, onDone: () => {}, onMetrics: () => {},
+        WebSocketImpl: FakeSocket
+    });
+    const socket = FakeSocket.instance;
+
+    socket.emitOpen();
+    await socket.emitPcm(new Uint8Array([1, 2, 3, 4]));
+    await socket.emitText({ type: "done", sessionId: "session-1" });
+    await relay.completion;
+
+    assert.deepEqual(audio, [[1, 2, 3, 4, 0, 0]]);
+});
+
 test("отмена очищает Simli buffer и уведомляет backend", () => {
     let cleared = false;
     const client = { sendAudioData: () => {}, ClearBuffer: () => { cleared = true; } };
@@ -115,5 +140,29 @@ test("relay передаёт сценарий только в start-команд
         scenario: { presetId: "sales-discovery" }
     });
     relay.cancel();
+    relay.completion.catch(() => {});
+});
+
+test("stale stream epoch отбрасывает поздние delta, PCM, metrics и done", async () => {
+    const events = [];
+    const stale = [];
+    let active = true;
+    const relay = openSimliStream({
+        url: "ws://test/api/chat/stream", sessionId: "session-1", message: "Текст",
+        simliClient: { sendAudioData: () => events.push("audio"), ClearBuffer: () => {} },
+        onSession: () => events.push("session"), onDelta: () => events.push("delta"), onFirstPcm: () => events.push("pcm"),
+        onDone: () => events.push("done"), onMetrics: () => events.push("metrics"), onStale: (type) => stale.push(type), isActive: () => active,
+        WebSocketImpl: FakeSocket
+    });
+    const socket = FakeSocket.instance;
+    socket.emitOpen();
+    active = false;
+    await socket.emitText({ type: "delta", delta: "late" });
+    await socket.emitPcm(new Uint8Array([1, 2]));
+    await socket.emitText({ type: "metrics", metrics: {} });
+    await socket.emitText({ type: "done", sessionId: "session-1" });
+
+    assert.deepEqual(events, []);
+    assert.deepEqual(stale, ["text", "pcm", "done"]);
     relay.completion.catch(() => {});
 });

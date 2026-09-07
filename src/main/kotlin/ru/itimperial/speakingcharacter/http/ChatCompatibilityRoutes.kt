@@ -143,7 +143,15 @@ fun Application.configureChatCompatibilityRoutes() {
                     return@post
                 }
                 val session = manager.finish(sessionId)
-                call.respond(requireNotNull(session.report).toChatDto(sessionId))
+                val report = session.report
+                if (report == null) {
+                    call.respond(
+                        HttpStatusCode.Accepted,
+                        ErrorResponse(session.reportError ?: "Training is finished; the report is being generated."),
+                    )
+                    return@post
+                }
+                call.respond(report.toChatDto(sessionId))
             }
 
             get("/{sessionId}/report") {

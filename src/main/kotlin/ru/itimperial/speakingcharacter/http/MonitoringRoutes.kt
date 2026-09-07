@@ -51,7 +51,7 @@ fun Application.configureMonitoringRoutes() {
             val sessionId = request.sessionId
             if (sessionId != null && runCatching { UUID.fromString(sessionId) }.isSuccess && manager.getSession(sessionId) != null) {
                 request.metrics.forEach { (name, value) ->
-                    manager.recordMetric(sessionId, "browser_$name", null, value)
+                    manager.recordMetric(sessionId, "browser_$name", null, value, request.turnId)
                 }
             }
 

@@ -1,10 +1,68 @@
 <!DOCTYPE html>
-<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Тренировка — Говорящий аватар</title><link rel="stylesheet" href="/style.css?v=3"></head>
-<body><main class="container training-page"><section class="training-card">
-    <a class="back-link" href="/?v=2">← Выбрать сценарий для новой тренировки</a><h1>Говорящий аватар</h1><p class="training-scenario" id="training-scenario">Свободный диалог</p>
-    <video id="avatar" autoplay playsinline></video><audio id="avatar-audio" autoplay hidden></audio>
-    <section class="user-transcript" aria-live="polite"><span class="user-transcript-label">Вы:</span><span id="user-transcript-text">Нажмите и удерживайте кнопку, чтобы ответить голосом.</span></section>
-    <button id="push-to-talk" class="ptt-button" disabled aria-pressed="false">Микрофон недоступен</button>
-    <details class="text-fallback"><summary>Ввести текст вручную</summary><textarea id="text" placeholder="Введите сообщение для аватара…">Давай приступим к тренировке. Задавай вопросы!</textarea><button id="speak" disabled>Отправить текст</button></details>
-    <div class="buttons"><button id="connect" disabled>Подключить</button><button id="disconnect" disabled>Отключить</button></div><div id="status">Загрузка…</div>
-</section></main><script type="module" src="/app.js?v=22"></script></body></html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тренировка — AI-тренажёр</title>
+    <link rel="stylesheet" href="/style.css?v=4">
+</head>
+<body>
+<main class="container training-page">
+    <section class="training-card product-training">
+        <div class="training-topbar">
+            <a class="back-link" href="/">← Сценарии</a>
+            <button id="finish-training" class="finish-button" disabled>Завершить тренировку</button>
+        </div>
+        <p class="eyebrow">AI-ТРЕНАЖЁР</p>
+        <h1 id="training-title">Свободная тренировка</h1>
+        <p class="training-mode">AI-тренер • Голосовой режим</p>
+        <p id="status" class="training-status" role="status">Загрузка…</p>
+
+        <div class="avatar-stage">
+            <video id="avatar" autoplay playsinline></video>
+            <audio id="avatar-audio" autoplay hidden></audio>
+            <div class="trainer-caption" aria-live="polite">
+                <span>Тренер</span>
+                <p id="trainer-transcript">Подключите тренера, чтобы начать тренировку.</p>
+            </div>
+        </div>
+
+        <section class="user-transcript" aria-live="polite">
+            <span class="user-transcript-label">Вы</span>
+            <span id="user-transcript-text">Нажмите и удерживайте кнопку, чтобы ответить голосом.</span>
+        </section>
+        <button id="push-to-talk" class="ptt-button" disabled aria-pressed="false">Микрофон недоступен</button>
+
+        <details class="text-fallback">
+            <summary>Ввести текст вручную</summary>
+            <textarea id="text" placeholder="Введите сообщение для тренера…">Давай приступим к тренировке. Задавай вопросы!</textarea>
+            <button id="speak" disabled>Отправить текст</button>
+        </details>
+        <div class="connection-actions">
+            <button id="connect" disabled>Подключить тренера</button>
+            <button id="disconnect" class="secondary-button" disabled>Отключить аватара</button>
+        </div>
+        <section id="finish-recovery" class="finish-recovery" hidden aria-live="polite">
+            <p id="finish-recovery-message">Не удалось получить подтверждение от сервера.</p>
+            <div class="connection-actions">
+                <button id="check-finish-result" class="secondary-button">Проверить результат</button>
+                <button id="retry-finish">Повторить завершение</button>
+            </div>
+        </section>
+    </section>
+</main>
+
+<div id="finish-modal" class="finish-modal" hidden role="dialog" aria-modal="true" aria-labelledby="finish-modal-title">
+    <div class="finish-modal__backdrop" data-close-finish-modal></div>
+    <section class="finish-modal__card">
+        <h2 id="finish-modal-title">Завершить тренировку?</h2>
+        <p>После завершения изменить ответы уже нельзя. Мы сохраним стенограмму и сформируем обратную связь по критериям этого сценария.</p>
+        <div class="finish-modal__actions">
+            <button id="cancel-finish" class="secondary-button">Продолжить тренировку</button>
+            <button id="confirm-finish" class="finish-button">Завершить и получить результат</button>
+        </div>
+    </section>
+</div>
+<script type="module" src="/app.js?v=30"></script>
+</body>
+</html>
