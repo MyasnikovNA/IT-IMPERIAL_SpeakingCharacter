@@ -36,6 +36,22 @@ class DotenvExecTest(unittest.TestCase):
 
         self.assertEqual(values["LABEL"], "Сценарий #1")
 
+    def test_override_wins_over_dotenv_for_isolated_runner_storage(self) -> None:
+        """Позволяет acceptance runner-у не зависеть от остановленного Docker PostgreSQL."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text("STORAGE_BACKEND=postgres\n", encoding="utf-8")
+            completed = __import__("subprocess").run(
+                [sys.executable, str(Path(dotenv_exec.__file__)), str(path), "--override", "STORAGE_BACKEND=file", "--", "python3", "-c", "import os; print(os.environ['STORAGE_BACKEND'])"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "file")
+
 
 if __name__ == "__main__":
     unittest.main()

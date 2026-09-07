@@ -34,16 +34,26 @@ def main() -> int:
     """Запускает command с dotenv env или безопасно печатает configured/missing status ключа."""
 
     if len(sys.argv) < 3:
-        print("Usage: dotenv_exec.py <.env> (--status KEY | -- <command> ...)", file=sys.stderr)
+        print("Usage: dotenv_exec.py <.env> [--override KEY=VALUE] (--status KEY | -- <command> ...)", file=sys.stderr)
         return 2
     values = load(Path(sys.argv[1]))
-    if sys.argv[2] == "--status":
-        key = sys.argv[3]
+    arguments = sys.argv[2:]
+    while arguments and arguments[0] == "--override":
+        if len(arguments) < 2 or "=" not in arguments[1]:
+            print("--override requires KEY=VALUE", file=sys.stderr)
+            return 2
+        key, value = arguments[1].split("=", 1)
+        values[key] = value
+        arguments = arguments[2:]
+    if not arguments:
+        return 2
+    if arguments[0] == "--status":
+        key = arguments[1]
         print("configured" if values.get(key, "").strip() and values[key] != "replace_me" else "missing")
         return 0
-    if sys.argv[2] == "--equals":
-        return 0 if values.get(sys.argv[3], "") == sys.argv[4] else 1
-    command = sys.argv[3:] if sys.argv[2] == "--" else sys.argv[2:]
+    if arguments[0] == "--equals":
+        return 0 if values.get(arguments[1], "") == arguments[2] else 1
+    command = arguments[1:] if arguments[0] == "--" else arguments
     if not command:
         return 2
     environment = os.environ.copy()
